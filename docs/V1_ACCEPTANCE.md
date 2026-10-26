@@ -12,8 +12,8 @@
 
 | 完成标准 | 结果 |
 | --- | --- |
-| 核心业务链路能从头到尾运行 | ✅ 验收脚本 65/65 通过 |
-| 主要回归测试通过 | ✅ 后端 362（SQLite）/ 364（PostgreSQL），前端 48 |
+| 核心业务链路能从头到尾运行 | ✅ 验收脚本 71/71 通过 |
+| 主要回归测试通过 | ✅ 后端 363（SQLite）/ 365（PostgreSQL）+ 迁移 1，前端 48 |
 | Agent 安全边界经过负向测试 | ✅ 86 项安全测试通过（白名单、预算、注入、引用校验、超时） |
 | 新环境运行方式有明确说明 | ✅ README 从零路径 + `sentinelflow-doctor`，本轮实跑验证 |
 | 未验证项目与已验证项目明确区分 | ✅ 见 §7 |
@@ -171,8 +171,8 @@ starlette 1.10.0），**全部测试仍通过**——说明依赖约束没有锁
 
 | 环境 | 结果 |
 | --- | --- |
-| SQLite（默认） | **362 passed, 3 skipped** |
-| PostgreSQL 16.15（新集群） | **364 passed, 1 skipped** |
+| SQLite（默认） | **363 passed, 3 skipped** |
+| PostgreSQL 16.15（新集群） | **365 passed, 1 skipped** |
 | 迁移测试（独立库） | **1 passed** |
 
 跳过的 3 项及原因：
@@ -198,15 +198,19 @@ PostgreSQL 下这 3 项全部执行并通过。
 | --- | --- |
 | `ruff format --check` | 111 个文件通过 |
 | `ruff check` | 0 问题 |
-| `mypy` | 107 个文件，0 错误 |
+| `mypy` | 109 个文件，0 错误 |
 
 覆盖范围：`src`、`tests`、`scripts`、`perf`、`benchmark`、`evaluation`、`migrations`。
 
 ### 4.4 验收脚本
 
-`python scripts/acceptance.py --reset` → **65/65 检查通过**。
+`python scripts/acceptance.py --reset` → **71/71 检查通过**。
 
 它自己起服务、自己建桩模型、从空库开始，逐项打印 PASS/FAIL 并在失败时给出实际值。
+
+71 = 65（业务链路）+ 6（负向检查）。负向检查是本轮新并入的：重复失败登录触发 429、
+超大请求体 413、两种 SQL 注入载荷无效、畸形事件 422、错误响应不含内部细节。
+它们以前是手工脚本跑的，跑完就没了；并入之后每次验收都会重跑。
 
 ---
 
@@ -328,7 +332,7 @@ POST /api/v1/auth/login
 
 ### 8.2 `docs/SECURITY.md` 测试数字过期（中）
 
-`318 passed, 1 skipped` → 更正为 `362 passed, 3 skipped`，并补上三个安全测试文件的分别计数。
+`318 passed, 1 skipped` → 更正为 `363 passed, 3 skipped`，并补上三个安全测试文件的分别计数。
 
 ### 8.3 `scripts/` 不在检查范围内（中）
 

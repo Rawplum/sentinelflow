@@ -167,7 +167,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--frontend-only", action="store_true", help="skip Python checks"
     )
-    parser.add_argument("--fast", action="store_true", help="skip tests")
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="format, lint and types only: no tests, no frontend",
+    )
     parser.add_argument(
         "--with-db",
         action="store_true",
@@ -179,7 +183,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    include_frontend = not args.backend_only
+    # --fast is the pre-commit check: it must stay under a few seconds, so it
+    # skips everything that needs node_modules or a test database. `--fast
+    # --frontend-only` would select nothing, which is why the combination is
+    # rejected below rather than silently doing nothing.
+    if args.fast and args.frontend_only:
+        parser.error("--fast does nothing with --frontend-only")
+    include_frontend = not args.backend_only and not args.fast
     include_backend = not args.frontend_only
     steps = build_steps(
         include_frontend=include_frontend,

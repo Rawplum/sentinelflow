@@ -46,11 +46,31 @@ SentinelFlow 把这一步拆成可验证的两半：
 
 <img src="docs/images/dashboard.png" width="860" alt="安全运营仪表盘">
 
+## 它怎么工作
+
+```mermaid
+flowchart LR
+    A["日志<br/>JSONL / HTTP 批量"] --> B["规则检测<br/>AUTH-001"]
+    B --> C["告警<br/>+ 证据关联"]
+    C --> D["Agent 调查<br/>4 个只读工具"]
+    D --> E{"引用校验<br/>id 属于本告警?"}
+    E -->|否| F["任务失败<br/>citation_invalid"]
+    E -->|是| G["报告 v1<br/>draft"]
+    G --> H["人工定稿<br/>finalized"]
+    G -.->|修订| I["报告 v2<br/>superseded v1"]
+```
+
+两条链路是分开的：**规则不需要模型**（没配 `LLM_*` 时前四步照样能跑，只有 Agent 返回 503），
+Agent 是增强而不是依赖。
+
+一次调查的完整时序（含三个会主动失败的位置）、12 张表的关系、两个状态机，
+见 **[docs/portfolio/ARCHITECTURE.md](docs/portfolio/ARCHITECTURE.md)**。
+
 ## 现在能用吗
 
 能用，但要分清边界。
 
-**可以**：本地跑完整流程、演示、交接、继续开发。V1.0 验收脚本 65 项全过，
+**可以**：本地跑完整流程、演示、交接、继续开发。V1.0 验收脚本 71 项全过，
 CI 三个必需 job 全绿，`docs/V1_ACCEPTANCE.md` 记录了逐项证据。
 
 **不可以**：直接放到公网。没有 TLS、没有 MFA、审计只增不删没有归档策略，
@@ -68,19 +88,62 @@ CI 三个必需 job 全绿，`docs/V1_ACCEPTANCE.md` 记录了逐项证据。
 | Agent 调查 | 4 个只读白名单工具、轮次/调用预算、引用校验、数据库队列（异步，202 立即返回） |
 | 报告 | 版本号 + `draft`/`finalized`/`superseded`；定稿不可改，修订建新版本；证据上限 100 条并标记截断 |
 | 前端 | React 19 控制台：告警列表筛选、证据查看、启动调查、轮询进度、查看步骤与工具调用、读报告 |
-| 验证体系 | 后端 362 项（SQLite）/ 366 项（PostgreSQL）、前端 48 项、浏览器 E2E 16 项、端到端验收 65 项、静态检查 0 告警 |
+| 验证体系 | 后端 363 项（SQLite）/ 366 项（PostgreSQL）、前端 48 项、浏览器 E2E 16 项、端到端验收 71 项、静态检查 0 告警 |
 
 ## 快速开始
 
 ```bash
 git clone https://github.com/Rawplum/sentinelflow.git
 cd sentinelflow
+
+python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
+python -m pip install -e ".[dev]"
+cp .env.example .env                             # 填 JWT_SECRET / POSTGRES_PASSWORD
+
+createdb sentinelflow                            # 或用 psql 建库建角色
+sentinelflow-doctor                              # 告诉你还差什么，每项给出可复制的命令
+alembic upgrade head
+sentinelflow-create-user --username admin --role admin
+uvicorn sentinelflow.main:app --port 8000
 ```
 
-需要 Python 3.11+、PostgreSQL 16、Node 22+（仅前端）。**不需要 Docker。**
+另开一个终端跑控制台：`cd frontend && npm install && npm run dev`，打开 <http://localhost:5173>。
 
-完整步骤见下方[从零启动（完整步骤）](#从零启动完整步骤)——8 步，每步都有验证方式。
-配好环境后跑 `python scripts/check.py` 可以一次性确认所有检查通过。
+需要 Python 3.11+、PostgreSQL 16、Node 22+（仅前端）。**不需要 Docker**（原因见
+[D-050](docs/DECISIONS.md)）。
+
+**配好之后，一条命令验证全部**：
+
+```bash
+python scripts/check.py     # 格式 / 静态检查 / 类型 / 后端测试 / 前端 lint+测试+构建
+```
+
+**想直接看它跑起来**（不需要模型密钥）：
+
+```bash
+export DEMO_PASSWORD='刚才输入的密码'
+python scripts/demo.py --username admin
+```
+
+七条合成日志进库 → 检测出告警 → 看证据 → 生成报告，约 15 秒，六步旁白。
+完整步骤与真实输出见 **[docs/portfolio/DEMO.md](docs/portfolio/DEMO.md)**。
+
+## 文档
+
+| 想知道什么 | 看哪 |
+| --- | --- |
+| 它怎么搭的、一次调查怎么走 | [docs/portfolio/ARCHITECTURE.md](docs/portfolio/ARCHITECTURE.md) |
+| 怎么演示、真实输出长什么样 | [docs/portfolio/DEMO.md](docs/portfolio/DEMO.md) |
+| 接口请求/响应实例（脚本生成，不可手改） | [docs/portfolio/API_EXAMPLES.md](docs/portfolio/API_EXAMPLES.md) |
+| 为什么这么设计、踩过哪些坑 | [docs/portfolio/ENGINEERING_NOTES.md](docs/portfolio/ENGINEERING_NOTES.md) |
+| 每个数字的出处和复现命令 | [docs/portfolio/EVIDENCE.md](docs/portfolio/EVIDENCE.md) |
+| 接口契约 / 表结构 | [docs/API_SPEC.md](docs/API_SPEC.md) / [docs/DATA_MODEL.md](docs/DATA_MODEL.md) |
+| 测试体系 / 性能 / 评测 | [docs/TESTING.md](docs/TESTING.md) / [docs/PERFORMANCE.md](docs/PERFORMANCE.md) / [docs/BENCHMARK.md](docs/BENCHMARK.md) |
+| 安全设计与已知限制 | [docs/SECURITY.md](docs/SECURITY.md) |
+| 技术决策记录（D-001 ~ D-052） | [docs/DECISIONS.md](docs/DECISIONS.md) |
+| V1.0 验收报告 | [docs/V1_ACCEPTANCE.md](docs/V1_ACCEPTANCE.md) |
+| 开发日志（按天，含失败与返工） | [docs/HANDOFF.md](docs/HANDOFF.md) |
+| 面向面试的材料 | [docs/portfolio/](docs/portfolio/) |
 
 ## 技术栈
 
@@ -395,156 +458,47 @@ Agent 的真实差异是"敢说不知道"——拒答 3/3 vs 单次模型 0/3。
 
 ## 端到端演示
 
-### 0. 登录并获取访问令牌
-
-先调用登录接口：
+一条命令走完全流程（不需要模型密钥）：
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/auth/login \
+export DEMO_PASSWORD='你的密码'
+python scripts/demo.py --username admin
+```
+
+它自己生成七条合成日志（同一账号同一来源，5 分钟内 6 次失败 + 1 次成功）、
+自己调接口、自己打印旁白：导入 → 重复导入（幂等）→ 检测 → 再检测（不重复告警）→
+看证据 → 确定性报告。加 `--with-agent` 再走一遍 Agent 调查。
+
+真实输出、演示数据的设计、故障排查，见 **[docs/portfolio/DEMO.md](docs/portfolio/DEMO.md)**。
+
+### 手工调三个最关键的接口
+
+```bash
+TOKEN=$(curl -s -X POST http://127.0.0.1:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"<your-password>"}'
+  -d '{"username":"admin","password":"<your-password>"}' | jq -r .access_token)
+
+# 规则检测：返回新建了哪些告警，重复运行返回 alerts_created=0
+curl -s -X POST http://127.0.0.1:8000/api/v1/detections/run \
+  -H "Authorization: Bearer $TOKEN"
+
+# 确定性报告（不需要模型），evidence 里每条都能点回原始日志
+curl -s "http://127.0.0.1:8000/api/v1/alerts/<alert_id>/report" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
-响应：
+**23 次完整的请求/响应实例**（含一份完整报告、403/401/429 的负向响应）见
+**[docs/portfolio/API_EXAMPLES.md](docs/portfolio/API_EXAMPLES.md)**——
+那份文档由 `scripts/capture_examples.py` 从真实运行生成，不是手写的。
 
-```json
-{
-  "access_token": "<jwt>",
-  "token_type": "bearer",
-  "expires_in": 1800,
-  "username": "admin",
-  "role": "admin"
-}
-```
-
-在 Windows cmd 中保存令牌：
-
-```bat
-set "TOKEN=<access_token from the response>"
-```
-
-后续管理请求使用 `-H "Authorization: Bearer %TOKEN%"`；bash 中使用 `$TOKEN`。analyst 只能访问查询和报告接口。
-
-### 1. 导入合成日志
-
-CLI（逐行校验，允许部分导入）：
-
-```bat
-sentinelflow-import data\sample_events.jsonl
-```
-
-实际输出摘要（SQLite/PostgreSQL 验证一致）：
-
-```json
-{
-  "records_seen": 29,
-  "valid_records": 25,
-  "invalid_records": 4,
-  "received": 25,
-  "imported": 24,
-  "skipped": 1,
-  "skipped_event_ids": [
-    "00000000-0000-4000-8000-000000000001"
-  ]
-}
-```
-
-也可以通过 API 导入（admin，整批校验，任一事件无效则整批返回 422）：
+批量导入用 CLI（逐行校验，允许部分导入）：
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/events/import \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer %TOKEN%" \
-  -d '{"events":[{"event_id":"11111111-1111-4111-8111-111111111111","timestamp":"2026-10-19T09:00:00Z","event_type":"authentication","username":"alice.demo","source_ip":"198.51.100.10","asset_id":"workstation-01","action":"login","outcome":"failure","raw_message":"synthetic auth failure","source":"synthetic-auth"}]}'
+sentinelflow-import data/sample_events.jsonl
 ```
 
-响应 `201 Created`：
-
-```json
-{
-  "received": 1,
-  "imported": 1,
-  "skipped": 0,
-  "skipped_event_ids": []
-}
-```
-
-### 2. 运行确定性检测
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/detections/run \
-  -H "Authorization: Bearer %TOKEN%"
-```
-
-对样例数据（24 条唯一事件）的实际响应结构：
-
-```json
-{
-  "rule_id": "AUTH-001",
-  "rule_version": "1.0.0",
-  "events_scanned": 22,
-  "windows_detected": 2,
-  "alerts_created": 2,
-  "alerts_skipped_existing": 0,
-  "created_alert_ids": [
-    "<alert-uuid-1>",
-    "<alert-uuid-2>"
-  ]
-}
-```
-
-再次运行会得到 `alerts_created: 0`，并通过 `alerts_skipped_existing` 报告已存在的告警。
-
-### 3. 查询告警
-
-```bash
-curl "http://127.0.0.1:8000/api/v1/alerts?limit=50&offset=0" \
-  -H "Authorization: Bearer %TOKEN%"
-```
-
-响应结构：
-
-```json
-{
-  "items": [
-    {
-      "id": "<alert-uuid>",
-      "rule_id": "AUTH-001",
-      "rule_version": "1.0.0",
-      "title": "Suspicious login activity",
-      "description": "5 failed authentication attempts for user 'alice.demo' from 198.51.100.10 matched rule AUTH-001 (at least 5 failures in any 5-minute window).",
-      "severity": "high",
-      "status": "open",
-      "first_seen_at": "2026-10-19T09:00:00Z",
-      "last_seen_at": "2026-10-19T09:04:00Z",
-      "event_count": 5,
-      "created_at": "2026-10-19T14:20:00Z",
-      "evidence_count": 5
-    }
-  ],
-  "total": 2,
-  "limit": 50,
-  "offset": 0
-}
-```
-
-### 4. 生成调查报告
-
-```bash
-curl "http://127.0.0.1:8000/api/v1/alerts/<alert-uuid>/report" \
-  -H "Authorization: Bearer %TOKEN%"
-```
-
-响应包含 `alert_id`、`summary`、`risk_level`、`evidence`、`timeline`、`reasoning`、`recommended_actions`、`limitations`。`evidence` 中的每个 `event_id` 都来自数据库实际事件，`timeline` 按事件时间升序排列。
-
-### 5. 查询操作审计（admin）
-
-```bash
-curl "http://127.0.0.1:8000/api/v1/audit-logs?limit=50&offset=0" \
-  -H "Authorization: Bearer %TOKEN%"
-```
-
-审计记录包含登录成功/失败、事件导入、检测执行、报告查看、权限拒绝和本地用户创建。analyst 访问该接口返回 403。
+> 样例文件里**故意留了 4 行非法数据**。CLI 会逐行跳过并报告；
+> 而 `POST /events/import` 是**全有或全无**，同一批数据会整批 422 拒绝。
 
 ## 规则说明
 
@@ -622,13 +576,13 @@ python scripts/check.py
 | 格式 | `ruff format --check src tests benchmark perf evaluation migrations` | 110 个文件通过 |
 | 静态检查 | `ruff check src tests benchmark perf evaluation migrations` | 0 问题 |
 | 类型 | `mypy`（配置在 `pyproject.toml`，覆盖 `src/` + `tests/`） | 89 个文件 0 错误 |
-| 后端测试 | `pytest -q` | `362 passed, 3 skipped` |
+| 后端测试 | `pytest -q` | `363 passed, 3 skipped` |
 | 前端 lint | `cd frontend && npm run lint` | 0 warning |
 | 前端测试 | `cd frontend && npm test` | 48 passed / 12 files |
 | 前端构建 | `cd frontend && npm run build` | 通过 |
 | 迁移一致性 | `alembic check` | 需要数据库 |
 
-**跳过的是什么**：`362 passed, 3 skipped` 里的 3 项——1 项迁移测试（需要真实 PostgreSQL）
+**跳过的是什么**：`363 passed, 3 skipped` 里的 3 项——1 项迁移测试（需要真实 PostgreSQL）
 和 2 项并发回归测试（SQLite 忽略 `FOR UPDATE`，既复现不了竞态也证明不了修复）。
 
 ### 端到端验收
@@ -694,7 +648,7 @@ npm run build
 
 | 检查 | 结果 |
 | --- | --- |
-| `pytest -q`（SQLite） | `362 passed, 3 skipped` |
+| `pytest -q`（SQLite） | `363 passed, 3 skipped` |
 | 新增测试 | 236 项（告警详情/状态机/报告版本/证据分页/事件过滤/限流撤销/Agent/可观测性/评测/防重与凭证卫生/模型客户端 HTTP） |
 | 既有测试 | 原 112 项全部继续通过，未修改任何既有断言 |
 | 前端 `npm test` | `48 passed / 12 files` |
@@ -778,27 +732,25 @@ alembic downgrade 0001
 ├── migrations/                     # Alembic 环境与版本
 ├── data/sample_events.jsonl        # 合成数据（含异常行）
 ├── docs/                           # 项目文档
+│   ├── portfolio/                  # 面向面试的材料（架构图、演示、决策、简历）
+│   ├── PERFORMANCE.md              # 性能实测
+│   ├── BENCHMARK.md                # Agent 评测
+│   └── V1_ACCEPTANCE.md            # V1.0 验收报告
 ├── .github/workflows/ci.yml        # 必需检查 + 可选真实模型 job
-├── scripts/check.py                # 唯一检查入口（CI 也调它）
+├── scripts/
+│   ├── check.py                    # 唯一检查入口（CI 也调它）
+│   ├── demo.py                     # 端到端演示（不需要模型密钥）
+│   ├── acceptance.py               # 71 项验收（含 6 项负向检查）
+│   └── capture_examples.py         # 生成 docs/portfolio/API_EXAMPLES.md
 ├── e2e/browser.mjs                 # 真实浏览器端到端
 ├── perf/                           # 性能与并发实测（合成数据）
+├── benchmark/                      # 三方对照评测（规则 / 单次模型 / Agent）
+├── evaluation/                     # 评测指标实现
 ├── alembic.ini
 ├── pyproject.toml
 ├── .env.example
 └── .gitignore
 ```
-
-## 文档索引
-
-- [项目规格](docs/PROJECT_SPEC.md)
-- [架构设计](docs/ARCHITECTURE.md)
-- [数据模型](docs/DATA_MODEL.md)
-- [API 规范](docs/API_SPEC.md)
-- [开发计划](docs/PLAN.md)
-- [技术决策](docs/DECISIONS.md)
-- [测试策略](docs/TESTING.md)
-- [交接说明](docs/HANDOFF.md)
-- [前端使用说明](frontend/README.md)
 
 ## 已知限制与未实现项
 
@@ -807,7 +759,8 @@ alembic downgrade 0001
 - **前端尚未接入状态流转、报告创建/定稿按钮**；后端已提供对应 API。
 - 只有一条检测规则 `AUTH-001`。
 - 事件查询支持字段过滤、关键词和范围，但**不支持自由查询语言或复杂布尔组合**。
-- 没有请求体大小中间件；当前通过 Schema 限制批量条数、字段长度和分页大小。
+- 请求体上限 **5 MiB**（`MAX_REQUEST_BODY_BYTES`），超出返回 413。
+  但只检查**声明的** `Content-Length`：不带该头流式上传的客户端需要反向代理兜底。
 - **检测会扫描全部认证失败事件**：没有增量或时间范围限制，数据增长后需要优化。
 - 数据库错误日志可能包含语句和参数；上线前需要日志脱敏和访问控制。
 - 报告接口仍返回 `raw_message`（为兼容性）；事件列表和证据分页可通过 `include_raw_message=false` 关闭。
@@ -849,11 +802,11 @@ alembic downgrade 0001
 尚未修复的风险（按优先级）：
 
 1. **检测全表扫描**（中）：应增加时间范围/增量检测或数据量保护。
-2. **请求体大小无中间件限制**（中低）：超大 JSON 会在 Schema 拒绝前被解析。
-3. **审计无保留策略、日志可能含敏感参数**（中低）：需要归档、访问控制和日志脱敏。
-4. **无 TLS/MFA/刷新令牌/密钥轮换**（中）：生产部署前必须补齐并做安全评审。
-5. **限流为应用层数据库实现**（中低）：不能防护能写库的攻击者，建议在反向代理再加一层全局限流。
-6. **`/docs`、`/redoc`、`/openapi.json` 默认公开**（低）：暴露 API 结构；生产应禁用或限制。
+2. **审计无保留策略、日志可能含敏感参数**（中低）：需要归档、访问控制和日志脱敏。
+3. **无 TLS/MFA/刷新令牌/密钥轮换**（中）：生产部署前必须补齐并做安全评审。
+4. **限流为应用层数据库实现**（中低）：不能防护能写库的攻击者，建议在反向代理再加一层全局限流。
+5. **`/docs`、`/redoc`、`/openapi.json` 默认公开**（低）：暴露 API 结构；生产应禁用或限制。
+6. **请求体上限只看声明的 Content-Length**（低）：不带该头的流式请求绕过应用层检查。
 
 ## 安全说明
 

@@ -2,8 +2,8 @@
 
 最后更新：2026-10-26
 
-**一句话状态**：V1.0 发布候选。后端 362 passed（SQLite）/ 366 passed（PostgreSQL）、
-前端 48 passed、真实浏览器 16 项、端到端验收 65 项、CI 三个必需 job 全绿。
+**一句话状态**：V1.0 发布候选。后端 363 passed（SQLite）/ 366 passed（PostgreSQL）、
+前端 48 passed、真实浏览器 16 项、端到端验收 71 项、CI 三个必需 job 全绿。
 真实模型已测量（Agent 41/44、单次模型 37/44、规则 13/18）。
 
 > 这份文档是按天追加的开发记录，包含决策的来龙去脉、失败的尝试和返工。
@@ -20,7 +20,7 @@
 git log --oneline           :: 看最近几次提交，判断上次做到哪
 git status --short          :: 有输出 = 有未提交改动，先看清楚再动手
 python scripts/check.py     :: 全部检查，期望 7 步全 PASS
-pytest -q                   :: 期望 362 passed, 3 skipped（SQLite）
+pytest -q                   :: 期望 363 passed, 3 skipped（SQLite）
 python -m benchmark.runner  :: 确定性基线，期望 13/18 期望匹配、0/3 拒答
 ```
 
@@ -33,7 +33,7 @@ python -m benchmark.runner  :: 确定性基线，期望 13/18 期望匹配、0/3
 | --- | --- |
 | 迁移 head | `0006` |
 | 静态检查 | ruff 0 问题；mypy 89 个文件 0 错误；格式 110 个文件通过 |
-| 后端测试（SQLite） | 362 passed / 3 skipped |
+| 后端测试（SQLite） | 363 passed / 3 skipped |
 | 后端测试（PostgreSQL 16.15） | 360 passed / 1 skipped（含 2 条并发回归） |
 | 前端测试 | 48 passed / 12 files |
 | 已验证环境 | SQLite、PostgreSQL 16.15、生产构建 + 同源代理 |
@@ -1217,18 +1217,18 @@ CI 的三个必需 job 调用同一个脚本，所以本地和 CI 不会漂移�
 
 全新 venv（`pip install -e ".[dev]"`，50 个包）+ 全新 PG 集群（空库）+ 桩模型。
 按 README 走：doctor → `alembic upgrade head`（6 级）→ 建用户 → 起服务 →
-`scripts/acceptance.py --reset` → 65/65 通过 → 前端 build/test → 浏览器 E2E 16/16。
+`scripts/acceptance.py --reset` → 71/71 通过 → 前端 build/test → 浏览器 E2E 16/16。
 
 ### 结果
 
 | 项 | 数字 |
 | --- | --- |
-| 后端 SQLite | 362 passed / 3 skipped |
+| 后端 SQLite | 363 passed / 3 skipped |
 | 后端 PostgreSQL 16.15 | 364 passed / 1 skipped |
 | 迁移升降级 | 1 passed |
 | 前端 | 48 passed / 12 files，lint 0，build 通过 |
 | 浏览器 E2E | 16/16 |
-| 端到端验收 | 65/65 |
+| 端到端验收 | 71/71 |
 | 安全测试 | 86 passed |
 | 静态检查 | ruff 0、mypy 107 文件 0 错误 |
 | `alembic check` | 无漂移 |
@@ -1306,6 +1306,61 @@ alembic upgrade head → 6 级；alembic check → 无漂移
 
 CI 只在 GitHub 托管的 Ubuntu 上跑。Windows 与 macOS 没有 CI，
 所以 README 里那两条"未验证"仍然成立。
+
+## 5.16 第十九天（2026-10-26）：把项目整理成可展示的作品
+
+目标不再是加功能，是让一个陌生人（面试官）能看懂、能跑、能追问。
+
+### 新增 `docs/portfolio/`（7 份）
+
+| 文档 | 内容 |
+| --- | --- |
+| `README.md` | 索引 + 可信度分级（可复现 / 有记录 / 有解释 / 主观） |
+| `ARCHITECTURE.md` | 四张 Mermaid 图：系统组成、一次调查的时序、12 张表、两个状态机 |
+| `DEMO.md` | 演示流程、真实输出、合成数据的设计、故障排查、编造引用的对照实验 |
+| `API_EXAMPLES.md` | **脚本生成**，23 次真实请求/响应，含完整报告 |
+| `ENGINEERING_NOTES.md` | 四个决策 + 六个难点 + 八个失败记录 |
+| `EVIDENCE.md` | 每个数字的出处和复现命令 |
+| `RESUME.md` / `INTERVIEW.md` | 三个岗位方向的简历描述与问答要点 |
+
+### 新增两个脚本
+
+- `scripts/demo.py`：不需要模型密钥就能跑完前五步（导入 → 重复导入 → 检测 →
+  再检测 → 证据 → 确定性报告），`--with-agent` 再加 Agent。事件 id 用
+  `uuid5(固定命名空间, index)`，所以第二次运行整批被跳过——**幂等性当场可见**。
+- `scripts/capture_examples.py`：跑一遍全流程并把请求/响应渲染成 Markdown。
+  **`API_EXAMPLES.md` 不能手改**，改内容只能改脚本或改代码。
+
+### 验收脚本从 65 项扩到 71 项
+
+把以前手工跑完就丢的负向检查并了进去：重复失败登录 429、超大请求体 413、
+两种 SQL 注入载荷无效、畸形事件 422、错误响应不含内部细节。
+复跑结果 **71/71**。
+
+### 顺手修的三处"说反的话"
+
+1. README 已知限制写着"没有请求体大小中间件"——**早就有了**（5 MiB，413 有测试）。
+   改成准确表述，并把"只检查声明的 Content-Length"列为已知局限。
+2. `check.py --fast` 的文档说"只跑静态检查"，实际还跑了前端 lint/test/build（18 秒）。
+   **改的是代码**：`--fast` 现在真的只跑 format/lint/types（2 秒），
+   并拒绝 `--fast --frontend-only` 这种什么都不做的组合。
+3. 各处测试数字 362 → 363（新增了 CI 库名守卫测试）。
+
+### README 首页
+
+加了三块：`## 它怎么工作`（一张流程图 + 两条链路分离的说明）、
+`## 文档`（12 行的导航表）、更具体的 `## 快速开始`（含 `scripts/demo.py` 一行演示）。
+把原来 150 行的手工 curl 走查压成 3 条关键请求 + 指向 `API_EXAMPLES.md`，
+删掉重复的旧「文档索引」。
+
+### 两个测试时的真实发现
+
+- **队列是共享的**：起两个 API 进程连同一个库做引用校验实验，
+  任务被另一个进程的 worker 领走，用它自己的模型配置跑出了正常结果。
+  这说明 worker 不绑定请求来源——单 worker 时不是问题，多副本时是设计要点。
+- **`AgentFindings.limitations` 有 `min_length=1`**：桩模型返回空数组时先撞 schema
+  （`model_invalid_output`），到不了引用校验。**模型不能声称自己没有局限**，
+  这条是代码定的，不是提示词求的。
 
 ## 6. 环境准备、数据库、用户、启动和测试
 

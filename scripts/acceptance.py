@@ -25,6 +25,7 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import quote
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -447,6 +448,73 @@ def run(base_url: str, checks: Checks) -> dict:
     return facts
 
 
+def run_security_checks(checks: Checks, base_url: str) -> None:
+    """The things that must be refused.
+
+    Kept separate from `run()` because these are negative assertions: each one
+    passes only when the product says no. A regression here is usually silent
+    (the request simply starts succeeding), which is why they are checked on
+    every acceptance run rather than once by hand.
+    """
+    client = Client(base_url)
+    client.login(ADMIN[0], ADMIN[1])
+
+    # --- rate limiting -----------------------------------------------------
+    # A fresh username, so the failed logins the business flow already made
+    # against `admin` do not consume this budget.
+    throttle = Client(base_url)
+    codes = []
+    for _ in range(7):
+        status, _, _ = throttle.request(
+            "POST",
+            "/api/v1/auth/login",
+            {"username": "throttle.probe", "password": "wrong"},
+            auth=False,
+        )
+        codes.append(status)
+    throttle.close()
+    checks.record(
+        "repeated failed logins are throttled",
+        429 in codes,
+        f"status codes {codes}",
+    )
+
+    # --- injection attempts are just strings -------------------------------
+    for payload in ("' OR 1=1 --", "'; DROP TABLE security_events; --"):
+        status, body, _ = client.request(
+            "GET", f"/api/v1/events?username={quote(payload, safe='')}&limit=5"
+        )
+        checks.equal(f"filter value {payload!r} is not executed", status, 200)
+
+    # --- error bodies do not describe the internals ------------------------
+    status, body, _ = client.request(
+        "POST", "/api/v1/events/import", {"events": [{"event_id": "nope"}]}
+    )
+    text = body.decode("utf-8", "replace").lower()
+    leaked = [
+        word
+        for word in ("traceback", "sqlalchemy", "psycopg", "/src/", "line ")
+        if word in text
+    ]
+    checks.equal("malformed event is rejected", status, 422)
+    checks.record(
+        "validation errors do not leak internals", not leaked, f"found {leaked}"
+    )
+
+    # --- oversized body ----------------------------------------------------
+    # Its own client: the server answers 413 without reading the body, so the
+    # connection is not reusable afterwards.
+    big = Client(base_url)
+    big.login(ADMIN[0], ADMIN[1])
+    status, _, _ = big.request(
+        "POST",
+        "/api/v1/events/import",
+        {"events": [], "pad": "x" * (6 * 1024 * 1024)},
+    )
+    big.close()
+    checks.equal("oversized request body is rejected", status, 413)
+
+
 def run_timeout_check(checks: Checks, database: str) -> None:
     """A provider that never answers must fail the task, not wedge the worker."""
     import socket
@@ -581,6 +649,8 @@ def main(argv: list[str] | None = None) -> int:
         ) as server:
             print("business flow")
             facts = run(server.base, checks)
+            print("\nnegative checks")
+            run_security_checks(checks, server.base)
     finally:
         stub.stop()
 

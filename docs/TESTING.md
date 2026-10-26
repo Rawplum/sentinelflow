@@ -72,7 +72,7 @@ ruff 与 mypy 的配置都在 `pyproject.toml`，规则集**显式列出**而不
 ```text
 $ .venv\Scripts\python.exe -m pytest -q
 ... [100%]
-362 passed, 3 skipped
+363 passed, 3 skipped
 ```
 
 跳过的是 3 项：
@@ -111,7 +111,7 @@ pytest -q
 
 ```text
 == pytest -q（全量，TEST_DATABASE_URL 指向 PostgreSQL）==
-362 passed, 3 skipped          # 跳过的是未设置 MIGRATION_TEST_DATABASE_URL 的场景
+363 passed, 3 skipped          # 跳过的是未设置 MIGRATION_TEST_DATABASE_URL 的场景
 
 == pytest tests/test_migrations.py（设置 MIGRATION_TEST_DATABASE_URL）==
 1 passed
@@ -330,7 +330,7 @@ pytest -q
 -> 112 passed, 1 skipped
 
 PostgreSQL 16.15 + pytest -q
--> 362 passed, 3 skipped
+-> 363 passed, 3 skipped
 ```
 
 OpenAPI 实际安全要求：
@@ -366,7 +366,9 @@ OpenAPI 实际安全要求：
 | `tests/test_eval_suite.py` | 13 个评测用例参数化 + 场景覆盖断言 + 指标未测量时不得伪造 |
 | `tests/test_alert_filters_api.py` | 告警列表按状态/严重性过滤、组合过滤、筛选后 total 与分页一致、非法枚举 422、未认证 401 |
 | `tests/test_concurrency.py` | 并发改状态后历史必须是一条链、末端等于告警状态；同一告警并发发起调查只能有一个成功（**仅在 PostgreSQL 下执行**，SQLite 忽略 `FOR UPDATE`） |
-| `scripts/acceptance.py`（非 pytest） | 端到端验收：登录/权限/审计、导入/检测、调查、报告版本与定稿、超时与重复请求，共 65 项 |
+| `scripts/acceptance.py`（非 pytest） | 端到端验收：登录/权限/审计、导入/检测、调查、报告版本与定稿、超时与重复请求、6 项负向检查，共 71 项 |
+| `scripts/demo.py`（非 pytest） | 演示脚本：不需要模型密钥即可跑完导入 → 检测 → 证据 → 确定性报告；`--with-agent` 加 Agent 链路 |
+| `scripts/capture_examples.py`（非 pytest） | 跑一遍全流程并把请求/响应渲染成 `docs/portfolio/API_EXAMPLES.md`，保证示例与代码不漂移 |
 | `tests/test_docs_consistency.py` | 每个 OpenAPI 路径都出现在 `API_SPEC.md`、每张表都出现在 `DATA_MODEL.md`；CI 工作流能解析且引用的脚本存在；必需的 job 不读密钥（4 项） |
 | `tests/test_doctor.py` | 环境诊断：缺 secret / secret 过短 / 示例值 / 数据库不可达（密码掩码）/ 未迁移 / 多项失败退出码 2（10 项） |
 | `tests/test_report_accuracy.py` | 截断报告与分页报告的窗口必须取自告警而非当前页；4 失败 + 1 成功不得被写成"5 次失败" |

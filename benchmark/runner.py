@@ -3,6 +3,7 @@
     python -m benchmark.runner                       # deterministic baseline only
     python -m benchmark.runner --baseline all --model self-test
     python -m benchmark.runner --baseline all --model real    # needs LLM_*
+    python -m benchmark.runner --probe               # check the endpoint first
 
 ``--model real`` is the only mode whose model numbers are measurements.
 ``self-test`` runs a canned double to prove the harness works; its output is
@@ -190,7 +191,17 @@ def main(argv: list[str] | None = None) -> int:
         help="'real' needs LLM_* configured; 'self-test' only validates the harness",
     )
     parser.add_argument("--json", dest="json_path", default=str(DEFAULT_REPORT))
+    parser.add_argument(
+        "--probe",
+        action="store_true",
+        help="check the configured endpoint with one tiny call, then exit",
+    )
     args = parser.parse_args(argv)
+
+    if args.probe:
+        from benchmark.preflight import probe
+
+        return probe()
 
     baselines = list(ALL_BASELINES) if args.baseline == "all" else [args.baseline]
     if any(name != "deterministic" for name in baselines) and args.model == "none":

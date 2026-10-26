@@ -234,6 +234,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/alerts/<alert-uuid>/investigations \
 回答"Agent 有没有比规则系统更有用"。三条基线跑同一批虚构案例：
 
 ```bat
+python -m benchmark.runner --probe                      :: 先验证端点可用（一次极小调用）
 python -m benchmark.runner                              :: 确定性规则基线（无需模型）
 python -m benchmark.runner --baseline all --model self-test   :: 验证管道，不是测量
 python -m benchmark.runner --baseline all --model real        :: 真实模型，需要 LLM_* 配置
@@ -443,7 +444,7 @@ curl "http://127.0.0.1:8000/api/v1/audit-logs?limit=50&offset=0" \
 pytest -q
 ```
 
-实际结果：`334 passed, 1 skipped`。跳过的是需要真实 PostgreSQL 的迁移测试。
+实际结果：`337 passed, 1 skipped`。跳过的是需要真实 PostgreSQL 的迁移测试。
 
 使用真实 PostgreSQL：
 
@@ -453,7 +454,7 @@ set "MIGRATION_TEST_DATABASE_URL=postgresql+psycopg://user:password@127.0.0.1:54
 pytest -q
 ```
 
-实际结果（PostgreSQL 16.15，2026-10-25）：`334 passed`；`tests/test_migrations.py` 单独跑 `1 passed`。
+实际结果（PostgreSQL 16.15，2026-10-25）：`337 passed`；`tests/test_migrations.py` 单独跑 `1 passed`。
 
 说明：
 
@@ -479,7 +480,7 @@ npm run build
 
 | 检查 | 结果 |
 | --- | --- |
-| `pytest -q`（SQLite） | `334 passed, 1 skipped` |
+| `pytest -q`（SQLite） | `337 passed, 1 skipped` |
 | 新增测试 | 222 项（告警详情/状态机/报告版本/证据分页/事件过滤/限流撤销/Agent/可观测性/评测/防重与凭证卫生/模型客户端 HTTP） |
 | 既有测试 | 原 112 项全部继续通过，未修改任何既有断言 |
 | 前端 `npm test` | `48 passed / 12 files` |

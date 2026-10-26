@@ -3,7 +3,7 @@
 最后更新：2026-10-25
 
 **一句话状态**：功能闭环已完成，并在 **SQLite 与 PostgreSQL 16.15 上全量验证**
-（后端 334 passed、前端 48 passed、迁移升降级全通），但 **真实模型仍未调用**，
+（后端 337 passed、前端 48 passed、迁移升降级全通），但 **真实模型仍未调用**，
 因此"AI 到底判得准不准"依然没有证据。详细状态与接手步骤见下一节。
 
 ## 接手须知（先读这一段，约 1 分钟）
@@ -13,7 +13,7 @@
 ```bat
 git log --oneline           :: 看最近几次提交，判断上次做到哪
 git status --short          :: 有输出 = 有未提交改动，先看清楚再动手
-pytest -q                   :: 期望 334 passed, 1 skipped（SQLite）
+pytest -q                   :: 期望 337 passed, 1 skipped（SQLite）
 python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 拒答
 ```
 
@@ -25,8 +25,8 @@ python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 �
 | 项 | 值 |
 | --- | --- |
 | 迁移 head | `0006` |
-| 后端测试（SQLite） | 334 passed / 1 skipped |
-| 后端测试（PostgreSQL 16.15） | 334 passed；迁移测试单独跑 1 passed |
+| 后端测试（SQLite） | 337 passed / 1 skipped |
+| 后端测试（PostgreSQL 16.15） | 337 passed；迁移测试单独跑 1 passed |
 | 前端测试 | 48 passed / 12 files |
 | 已验证环境 | SQLite（内存 + 真实文件）、PostgreSQL 16.15 |
 | **未验证** | 真实模型调用、真实浏览器 |
@@ -49,7 +49,8 @@ python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 �
 
 ### 下一步只有一件事
 
-**用真实模型跑一次基准**：`python -m benchmark.runner --baseline all --model real`
+**用真实模型跑一次基准**：先 `python -m benchmark.runner --probe` 确认端点可用，
+再 `python -m benchmark.runner --baseline all --model real`
 （需要 `LLM_PROVIDER` / `LLM_MODEL` / `LLM_API_BASE` / `LLM_API_KEY`）。
 重点看 `expectation_match_rate` 与 `refusal_appropriateness` 能否明显超过确定性基线的 60% / 0%。
 如果超不过，该停下来重新想产品，而不是继续加功能。
@@ -261,8 +262,8 @@ G:\软件开发\
 
 实际测试结果（累计，最新数字见 5.1 第五天验收结果）：
 
-- 全量 SQLite：`334 passed, 1 skipped`（迁移测试因未设置 PostgreSQL URL 跳过）。
-- 全量 PostgreSQL 16.15：`334 passed`；`tests/test_migrations.py` 单独跑 `1 passed`。
+- 全量 SQLite：`337 passed, 1 skipped`（迁移测试因未设置 PostgreSQL URL 跳过）。
+- 全量 PostgreSQL 16.15：`337 passed`；`tests/test_migrations.py` 单独跑 `1 passed`。
 - 既有 112 项测试全部继续通过，**未修改任何既有断言**。
 - 阶段 A 新增 78 项：告警详情、状态机、报告版本、证据分页、事件过滤、登录限流与令牌撤销。
 - 阶段 B 新增 27 项：Agent 白名单、参数校验、权限、作用域、预算、引用校验、日志脱敏、提示注入、模型失败/超时、非法结构化输出、空查询结果、失败审计。
@@ -536,7 +537,7 @@ docs/DECISIONS.md、docs/PLAN.md、docs/TESTING.md、docs/HANDOFF.md
 
 | 检查 | 结果 |
 | --- | --- |
-| 后端全量 | `334 passed, 1 skipped` |
+| 后端全量 | `337 passed, 1 skipped` |
 | Agent / 可观测性 / 评测 / 认证 RBAC 分组 | `97 passed` |
 | 评测集 | `13/13 passed`；`--repeat 3` 判定一致 |
 | 前端 | `33 passed / 9 files`；typecheck 通过；lint 0 warnings；build 通过 |
@@ -894,6 +895,55 @@ postgres -D %TEMP%\pgdata16 -p 55432 -c listen_addresses=127.0.0.1
 ### 复现
 
 见 `docs/TESTING.md` 的「PostgreSQL 16.15（真实数据库）」小节，含完整命令。
+
+## 5.8 第十二天（2026-10-25）：真实模型接入尝试（未成功）
+
+### 结果：没有拿到真实数字
+
+用户提供了 `https://agentrouter.org/v1` 与模型 `gpt-6.1-sol`，以及一个 `sk-` 开头的 token。
+**该 token 被网关拒绝**，因此 `--model real` 仍未运行。
+
+### 排查过程（结论：token 无效，不是客户端问题）
+
+| 检验 | 结果 | 排除了什么 |
+| --- | --- | --- |
+| 无 key / 假 key / 真 key | 三者返回**完全相同**的 `unauthorized client detected` | key 校验之前就拒绝的可能 |
+| 真实 Chromium（Playwright，同源 fetch） | 同样 401 | TLS 指纹、UA、浏览器特征 |
+| 系统代理 / 直连 | 相同 | 出口 IP |
+| 4 种鉴权头（Bearer / 裸 token / `api-key` / `x-api-key`） | 全部 401 | 头部格式 |
+| `GET /api/status` | 200，公告里确实写着 `gpt-6.1sol` | 网关不可达 |
+| `GET /v1/nonexistent` | 404 `Invalid URL` | 路由层异常 |
+| `GET /api/user/self` | 200 + `access token 无效` | —— |
+
+网关能连、路由正常、模型存在，唯独这个 token 不被接受。需要重新生成令牌。
+
+### 沉淀：`--probe` 预检
+
+排查过程原本是一串手工 curl。现在是一条命令：
+
+```bat
+python -m benchmark.runner --probe
+```
+
+依次检查：环境变量是否齐全 → `GET {base}/models` 是否接受 key（仅诊断，网关禁用该路由时只告警）
+→ 一次真实 `POST {base}/chat/completions` 是否返回**结构合法的 findings**。
+失败退出码 2，key 打码成 `sk-abc...1234`，完整 key 不落盘。
+
+为什么值得加：一次基准要跑 9 个用例 × 最多 5 轮模型调用。端点配错时，
+原本会看到 9 行错误，真正的原因藏在表格里；现在第一行就说清楚。
+
+新增 3 项测试：未配置时失败关闭、端点可用时通过、401 时失败。
+
+### 命令
+
+```bat
+set LLM_PROVIDER=<provider>
+set LLM_MODEL=<model>
+set LLM_API_BASE=<https://host/v1>
+set LLM_API_KEY=<key>
+python -m benchmark.runner --probe
+python -m benchmark.runner --baseline all --model real
+```
 
 ## 6. 环境准备、数据库、用户、启动和测试
 

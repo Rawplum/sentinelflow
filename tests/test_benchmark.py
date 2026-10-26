@@ -7,7 +7,10 @@ double, which is why the reports label them as self-test.
 
 from __future__ import annotations
 
+import json
+
 from sentinelflow.ai.model_client import ModelTurn
+from sentinelflow.core.config import get_settings
 
 from benchmark.baselines import EchoToolClient
 from benchmark.dataset import load_cases
@@ -15,6 +18,7 @@ from benchmark.metrics import meets_expectation
 from benchmark.runner import run
 
 from support import ScriptedClient, evidence_ids, findings
+from support.stub_provider import completion
 
 
 def _metric(payload, baseline, key):
@@ -172,3 +176,66 @@ def test_synchronous_investigation_actually_runs(
     assert investigation.attempt_count == 1
     assert investigation.rounds_used >= 1
     assert investigation.report_id is not None
+
+
+# --- preflight --------------------------------------------------------------
+
+
+def test_preflight_fails_closed_without_configuration(monkeypatch) -> None:
+    from benchmark.preflight import probe
+
+    for name in ("LLM_PROVIDER", "LLM_MODEL", "LLM_API_BASE", "LLM_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    get_settings.cache_clear()
+
+    assert probe() == 2
+
+
+def test_preflight_passes_against_a_working_endpoint(
+    stub_provider, monkeypatch
+) -> None:
+    """A reachable endpoint that returns a valid findings object must pass."""
+    from benchmark.preflight import probe
+
+    stub_provider.responses.append(
+        (
+            200,
+            completion(
+                {
+                    "content": json.dumps(
+                        {
+                            "summary": "connectivity check",
+                            "risk_level": "low",
+                            "reasoning": "probe",
+                            "recommended_actions": ["none"],
+                            "limitations": ["probe only"],
+                            "cited_event_ids": [
+                                "00000000-0000-4000-8000-000000000000"
+                            ],
+                        }
+                    )
+                }
+            ),
+        )
+    )
+    monkeypatch.setenv("LLM_PROVIDER", "stub")
+    monkeypatch.setenv("LLM_MODEL", "stub-model")
+    monkeypatch.setenv("LLM_API_BASE", stub_provider.base_url)
+    monkeypatch.setenv("LLM_API_KEY", "sk-stub-not-a-real-key")
+    get_settings.cache_clear()
+
+    assert probe() == 0
+
+
+def test_preflight_reports_a_rejected_key(stub_provider, monkeypatch) -> None:
+    """A 401 must fail the probe instead of letting nine cases fail one by one."""
+    from benchmark.preflight import probe
+
+    stub_provider.responses.append((401, {"error": {"message": "bad key"}}))
+    monkeypatch.setenv("LLM_PROVIDER", "stub")
+    monkeypatch.setenv("LLM_MODEL", "stub-model")
+    monkeypatch.setenv("LLM_API_BASE", stub_provider.base_url)
+    monkeypatch.setenv("LLM_API_KEY", "sk-wrong")
+    get_settings.cache_clear()
+
+    assert probe() == 2

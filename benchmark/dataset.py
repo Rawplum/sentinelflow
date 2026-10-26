@@ -30,6 +30,11 @@ class Case:
     applicable_to: tuple[str, ...]
     expect: dict[str, Any]
     spec: dict[str, Any]
+    #: True when the case only works if the harness injects a fault (a model
+    #: timeout, a fabricated citation, a tool error). A real model cannot be
+    #: forced into those states, so the case is skipped for model baselines and
+    #: covered by the scripted tests instead.
+    requires_fault_injection: bool = False
 
 
 def load_cases() -> list[Case]:
@@ -42,6 +47,7 @@ def load_cases() -> list[Case]:
             applicable_to=tuple(item.get("applicable_to", ())),
             expect=item.get("expect", {}),
             spec=item,
+            requires_fault_injection=bool(item.get("requires_fault_injection")),
         )
         for item in raw
     ]

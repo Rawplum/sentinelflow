@@ -38,7 +38,6 @@ from sentinelflow.services.reports import build_report, load_alert_evidence
 #: Phrases that indicate the answer admits it cannot conclude.
 REFUSAL_MARKERS = (
     "insufficient",
-    "not enough",
     "cannot conclude",
     "cannot determine",
     "unable to conclude",
@@ -62,6 +61,18 @@ Alert
 
 Events
 {events}
+
+Risk levels are defined by the evidence, not by how alarming the wording is:
+
+- low: a single failed attempt, or a pattern fully explained by a benign cause
+  (mistyped password, expired credential). No successful authentication from
+  the same source in the window.
+- medium: repeated failures from one source in a short window, with no
+  successful authentication observed. Suspicious, but no evidence of access.
+- high: repeated failures followed by a successful authentication, or a
+  successful authentication from an unexpected source. Possible compromise.
+- critical: confirmed compromise, privileged-account abuse, or destructive
+  activity visible in the evidence.
 
 Reply with ONLY this JSON object:
 {{"summary": "...", "risk_level": "low|medium|high|critical",
@@ -88,10 +99,45 @@ class BaselineResult:
     forbidden_executed: list[str] = field(default_factory=list)
     latency_ms: int | None = None
     error: str | None = None
+    #: Provider-reported token usage, summed over every call this case made.
+    #: Left as None when the provider reports nothing, so "unknown" never looks
+    #: like "zero".
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    model_calls: int = 0
 
     @property
     def ok(self) -> bool:
         return self.produced_answer and self.error is None
+
+
+class CountingClient:
+    """Wraps a client to total the token usage it reports.
+
+    Kept in the benchmark rather than in the production client: production does
+    not need a running total, and adding one there would make every caller pay
+    for bookkeeping only the benchmark reads.
+    """
+
+    def __init__(self, inner: ModelClient) -> None:
+        self._inner = inner
+        self.provider = inner.provider
+        self.model = inner.model
+        self.calls = 0
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
+        self.reported = False
+
+    def complete(self, **kwargs: Any) -> ModelTurn:
+        turn = self._inner.complete(**kwargs)
+        self.calls += 1
+        if turn.prompt_tokens is not None:
+            self.prompt_tokens += turn.prompt_tokens
+            self.reported = True
+        if turn.completion_tokens is not None:
+            self.completion_tokens += turn.completion_tokens
+            self.reported = True
+        return turn
 
 
 def _mentions_refusal(text: str) -> bool:
@@ -146,6 +192,13 @@ def run_deterministic(session: Session, alert: Alert) -> BaselineResult:
     return result
 
 
+def _record_usage(result: BaselineResult, counted: CountingClient) -> None:
+    result.model_calls = counted.calls
+    if counted.reported:
+        result.prompt_tokens = counted.prompt_tokens
+        result.completion_tokens = counted.completion_tokens
+
+
 def _format_events(session: Session, alert: Alert) -> tuple[str, set[str]]:
     events = load_alert_evidence(session, alert.id, limit=200, offset=0)
     lines = []
@@ -174,9 +227,10 @@ def run_single_shot(
         events=events_text,
     )
 
+    counted = CountingClient(client)
     started = time.monotonic()
     try:
-        turn = client.complete(
+        turn = counted.complete(
             system_prompt="You are a security analyst. Answer once, in JSON.",
             transcript=[{"role": "user", "content": prompt}],
             tools=[],
@@ -184,8 +238,10 @@ def run_single_shot(
     except ModelClientError as exc:
         result.latency_ms = int((time.monotonic() - started) * 1000)
         result.error = str(exc)[:300]
+        _record_usage(result, counted)
         return result
     result.latency_ms = int((time.monotonic() - started) * 1000)
+    _record_usage(result, counted)
 
     if turn.findings is None:
         result.error = "model returned no findings"
@@ -201,18 +257,20 @@ def run_agent(
 ) -> BaselineResult:
     """The bounded, tool-using investigation."""
     result = BaselineResult(baseline="agent", case_id="", scenario="")
+    counted = CountingClient(client)
     started = time.monotonic()
     investigation = run_investigation(
         session,
         alert.id,
         user=user,
-        client=client,
+        client=counted,
         max_rounds=5,
         max_tool_calls=8,
         tool_timeout_seconds=5,
         commit=True,
     )
     result.latency_ms = int((time.monotonic() - started) * 1000)
+    _record_usage(result, counted)
     if investigation is None:
         result.error = "investigation not created"
         return result

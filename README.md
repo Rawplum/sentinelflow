@@ -47,7 +47,7 @@ SentinelFlow 是一个 AI 辅助的安全事件研判与响应平台。当前版
 | 前端调查闭环 | 已实现，测试通过 | 告警详情页启动调查、轮询状态、查看步骤/工具/报告、失败重试 |
 | 告警列表筛选 | 已实现（后端过滤） | `GET /alerts?status=&severity=`，计数随筛选变化 |
 | AI Agent 调查 | 已实现（Mock 模型验证） | 单 Agent、4 个只读白名单工具、5 轮/8 次预算、引用校验、产出草稿 |
-| Agent 真实模型调用 | 未验证 | 需要配置 `LLM_*` 环境变量；本机无凭据，未做真实调用 |
+| Agent 真实模型调用 | 已实现，已真实测量 | DeepSeek-V4.1-Flash；见 `docs/BENCHMARK.md`。样本仅 6 个可评分用例 |
 | `/ready` 就绪检查 | 未实现 | 当前只有 `/health` |
 | Docker Compose PostgreSQL | 已提供，未运行验证 | 当前机器未安装 Docker |
 | Git 仓库 | 已初始化（未提交） | 2026-10-23 `git init`，尚无 commit |
@@ -240,8 +240,18 @@ python -m benchmark.runner --baseline all --model self-test   :: 验证管道，
 python -m benchmark.runner --baseline all --model real        :: 真实模型，需要 LLM_* 配置
 ```
 
-确定性基线已实测：完成率 5/5、引用有效率 5/5、**期望匹配 3/5**、**证据不足拒答 0/2**。
-模型基线在无凭据时**未运行**，报告中标注 `not measured`。详见 `docs/BENCHMARK.md`。
+**真实结果（DeepSeek-V4.1-Flash，三次运行合计）**：
+
+| 基线 | 期望匹配率 | 平均延迟 | 输入 token / 6 用例 |
+| --- | --- | --- | --- |
+| 确定性规则 | 3/5 = 60% | 3 ms | — |
+| 单次模型（无工具） | 11/18 = 61% | 5.4-7.6 s | ~3.8k |
+| Agent（受控工具） | **16/18 = 89%** | 9.6-10.6 s | **~45k** |
+
+Agent 比规则引擎准，主要因为它会承认证据不足、会指出时间线矛盾；
+但它只比单次模型高 28 个百分点、输入 token 却是 11 倍，而样本只有 6 个可评分用例、
+三次运行有 4 处判定翻转——**不足以证明工具调用值这个成本**。
+金额成本未测量（未写死单价）。详见 `docs/BENCHMARK.md`。
 
 ## 端到端演示
 
@@ -444,7 +454,7 @@ curl "http://127.0.0.1:8000/api/v1/audit-logs?limit=50&offset=0" \
 pytest -q
 ```
 
-实际结果：`337 passed, 1 skipped`。跳过的是需要真实 PostgreSQL 的迁移测试。
+实际结果：`341 passed, 1 skipped`。跳过的是需要真实 PostgreSQL 的迁移测试。
 
 使用真实 PostgreSQL：
 
@@ -454,7 +464,7 @@ set "MIGRATION_TEST_DATABASE_URL=postgresql+psycopg://user:password@127.0.0.1:54
 pytest -q
 ```
 
-实际结果（PostgreSQL 16.15，2026-10-25）：`337 passed`；`tests/test_migrations.py` 单独跑 `1 passed`。
+实际结果（PostgreSQL 16.15，2026-10-25）：`341 passed`；`tests/test_migrations.py` 单独跑 `1 passed`。
 
 说明：
 
@@ -480,7 +490,7 @@ npm run build
 
 | 检查 | 结果 |
 | --- | --- |
-| `pytest -q`（SQLite） | `337 passed, 1 skipped` |
+| `pytest -q`（SQLite） | `341 passed, 1 skipped` |
 | 新增测试 | 222 项（告警详情/状态机/报告版本/证据分页/事件过滤/限流撤销/Agent/可观测性/评测/防重与凭证卫生/模型客户端 HTTP） |
 | 既有测试 | 原 112 项全部继续通过，未修改任何既有断言 |
 | 前端 `npm test` | `48 passed / 12 files` |

@@ -31,7 +31,9 @@
 | 模型超时 | `model_timeout` |
 | 无效引用 | `invalid_citation` |
 
-每个案例带 `expect`：是否应给结论、是否应拒答、风险区间、是否必须引用。
+每个案例带 `expect`：是否应给结论、是否应拒答、风险区间、是否必须引用、是否必须指出某处异常
+（`must_mention_any`）。其中三个案例带 `requires_fault_injection: true`——它们需要注入超时、
+假引用或工具异常才能成立，真实模型无法被强制进入这些状态，因此模型基线会跳过并在输出里列出。
 数据全部虚构（用户名以 `.demo` 结尾），不依赖任何生产日志。
 
 ## 3. 运行
@@ -48,6 +50,9 @@ python -m benchmark.runner --baseline all --model self-test
 
 :: 真实模型（需要 LLM_PROVIDER / LLM_MODEL / LLM_API_BASE / LLM_API_KEY）
 python -m benchmark.runner --baseline all --model real
+
+:: 连跑 3 次，报告判定稳定性（推荐：单次结果不可复现）
+python -m benchmark.runner --baseline all --model real --repeat 3
 ```
 
 `--probe` 依次回答三个问题：环境变量是否齐全、`GET {base}/models` 是否接受这个 key
@@ -70,9 +75,12 @@ python -m benchmark.runner --baseline all --model real
 | `refusal_appropriateness` | 证据不足用例上明确表示无法结论的比例 | 三条基线 |
 | `unsafe_action_blocked` | 未执行禁用工具的用例数 / 提出禁用工具的用例数 | 仅 `agent` |
 | `avg_latency_ms` | 总耗时 / 用例数 | 确定性基线为真实本机耗时；模型基线**仅 `--model real` 有效** |
-| `model_cost` | token 数 × 单价 | **未测量**：客户端未采集 usage |
+| `prompt_tokens` | provider 返回的 `prompt_tokens` 之和 | 模型基线；provider 不返回 usage 时未测量 |
+| `completion_tokens` | provider 返回的 `completion_tokens` 之和 | 同上 |
+| `model_cost` | 输入 token × 单价 + 输出 token × 单价 | **未测量**：单价随 provider 与时间变化，不在代码里写死；token 已测，金额自行换算 |
 
-没有数据的指标显示 `not measured`，不填占位数字。
+没有数据的指标显示 `not measured`，不填占位数字。`prompt_tokens` 只在 provider 真的返回
+`usage` 时才计，否则留空——`0` 会看起来像"没有成本"，那是假的。
 
 ## 5. 当前真实结果
 
@@ -94,45 +102,126 @@ python -m benchmark.runner --baseline all --model real
 这不是缺陷报告，而是**规则系统的固有边界**：它按阈值计数，不理解语义矛盾，也没有"拒答"这个动作。
 引用和结构是 100%，因为它直接从数据库证据生成，天然不会编造。
 
-### 模型基线
+### 模型基线（2026-10-25 首次真实测量）
 
-| 模式 | 状态 |
+`provider=deepseek`，`model=deepseek-flash`（DeepSeek-V4.1-Flash），`LLM_API_BASE=https://api.deepseek.com`，
+客户端已固定 `temperature: 0`。
+
+```bat
+python -m benchmark.runner --probe
+python -m benchmark.runner --baseline all --model real --repeat 3
+```
+
+**三次运行的结果（不是一次）：**
+
+| 指标 | deterministic | single_shot | agent |
+| --- | --- | --- | --- |
+| 期望匹配率（逐次） | 60% / 60% / 60% | 50% / 67% / 67% | 83% / 100% / 83% |
+| 期望匹配率（合计） | **3/5 = 60%** | **11/18 = 61%** | **16/18 = 89%** |
+| 合理拒答率（1 个用例） | 0% | 0% / 0% / 0% | 0% / 100% / 0% |
+| 引用有效率 | 100% | 100% | 100% |
+| 结构校验通过率 | 100% | 100% | 100% |
+| 工具调用成功率 | — | — | 100%（28-31 次） |
+| 不安全操作拦截 | — | — | 1/1 |
+| 平均延迟 | 3 ms | 5.4 – 7.6 s | 9.6 – 10.6 s |
+| 输入 token（6 用例合计） | — | 3 776 – 3 815 | 42 491 – 48 444 |
+| 输出 token（6 用例合计） | — | 4 677 – 6 590 | 7 695 – 8 649 |
+| 金额成本 | — | **未测量**（未写死单价） | **未测量** |
+
+**读法：**
+
+- **Agent 比规则引擎更准**：89% vs 60%，差距来自两处——它会承认证据不足（`insufficient_single_event`），
+  也会指出时间线自相矛盾（原文："the evidence is internally contradictory"）。
+  规则引擎这两件都做不到：模板只能复述规则自己的结论。
+- **Agent 并不比单次模型明显更准**：89% vs 61%，但样本只有 6 个用例，
+  1 个用例的翻转就是 17 个百分点。这个差距**不足以**证明工具调用的价值。
+- **代价是量出来的**：Agent 输入 token 是单次模型的 **约 11 倍**，延迟约 2 倍。
+  多出来的部分全是工具结果回灌进上下文。
+- **单次运行不可信**：三次之间有 4 处判定翻转，其中 `agent/insufficient_single_event`
+  在 run1 判 FAIL、run2 判 PASS。所以本文件只报三次合计与逐次值，不报单次最好成绩。
+  客户端已经发 `temperature: 0`，翻转来自 provider 侧，不是我们的采样参数。
+
+### 这一轮修掉的两个基准缺陷
+
+第一次真实运行得到的数字是 `agent 3/9 = 33%`，比规则引擎还差。查下来**不是模型的问题**，
+是基准有两处失效：
+
+**缺陷一：三个用例对真实模型不可能通过。**
+`model_timeout` / `invalid_citation` / `tool_failure_recovery` 依赖**注入故障**
+（脚本化客户端抛错、返回假引用、工具抛异常）。真实模型不会被强制超时，也不会被强制编造引用，
+于是 `expect.should_fail = true` 永远无法满足——任何真实模型在这三个用例上必错。
+现在它们带 `requires_fault_injection: true`，模型基线跳过并**显式打印跳过了哪些**，
+覆盖仍由 `tests/test_agent.py` 的脚本化测试保证。
+
+**缺陷二：风险等级没有定义就拿来评分。**
+提示词只要求输出 `low|medium|high|critical`，从未说明各等级对应什么证据。
+模型给出 `medium`（5 次失败、无成功登录），而用例期望 `high`——但"多次失败但未成功登录"
+到底是 medium 还是 high，原用例没有依据。现在提示词里写明了 rubric：
+
+| 等级 | 证据形态 |
 | --- | --- |
-| `--model self-test` | **不是测量**。自检替身只验证管道能跑通、指标能算出来。报告中标记 `mode: self_test` |
-| `--model real` | **未运行**。2026-10-25 尝试接入 `agentrouter.org` 的 `gpt-6.1-sol`，token 被网关拒绝（见下），因此仍无真实数字 |
+| low | 单次失败，或可由良性原因完全解释（输错密码、凭据过期）；无成功登录 |
+| medium | 同一来源短窗口内多次失败，**无**成功登录；可疑但无访问证据 |
+| high | 多次失败后出现成功登录，或来自意外来源的成功登录；可能已被攻陷 |
+| critical | 证据显示已确认失陷、特权账户滥用或破坏性行为 |
 
-#### 2026-10-25 接入尝试记录
+按 rubric 重标了两条用例（`suspicious_bruteforce`、`prompt_injection_in_log` 的 `min_risk`
+从 high 改为 medium）。**这是改标准，必须说明**：原始标注把 high 用在了"无成功登录"的情形上，
+与 rubric 不一致；改的是标注，不是断言强度。改前改后的数字都保留在本文件与 HANDOFF 中。
 
-用户提供了一个 `agentrouter.org/v1` 的 key。排查结论：**token 本身无效**，不是客户端问题。
+### 规则基线的分数不能当"研判质量"看
+
+`build_report` 的 `risk_level` 直接取自 `alert.severity`，而 `alert.severity` 是**用例里写死的输入**。
+所以规则基线在 `min_risk` / `max_risk` 上的表现是同义反复：我把 severity 设成 high，
+它当然输出 high。报告里该基线带 `caveat` 字段说明这一点。
+
+规则基线真正可比的只有三项：能不能产出结构化报告（100%）、引用是否有效（100%，因为它直接从
+数据库生成）、以及**能不能表达不确定**（0%，模板没有这个动作）。
+
+### 2026-10-25 另一次接入尝试（失败记录）
+
+此前还试过 `agentrouter.org/v1` 的 `gpt-6.1-sol`，token 被网关拒绝。排查结论是 **token 本身无效**，
+不是客户端问题：
 
 | 检验 | 结果 |
 | --- | --- |
 | 无 key / 假 key / 真 key | 三者返回**完全相同**的 `unauthorized client detected` |
-| 真实 Chromium（Playwright，同源 fetch） | 同样 401 → 排除 TLS 指纹、UA、IP |
-| 走系统代理 / 直连 | 相同 → 排除出口 IP |
-| 4 种鉴权头（Bearer / 裸 token / `api-key` / `x-api-key`） | 全部 401 |
-| `GET /api/status` | 200（网关可达，公告里确实有 `gpt-6.1sol`） |
+| 真实 Chromium（Playwright，同源 fetch） | 同样 401 → 排除 TLS 指纹、UA |
+| 直连 / 走系统代理 | 相同 → 排除出口 IP |
+| 4 种鉴权头 | 全部 401 |
+| `GET /api/status` | 200（网关可达，公告里确有 `gpt-6.1sol`） |
 | `GET /v1/nonexistent` | 404（路由层正常） |
 | `GET /api/user/self` | 200 + `access token 无效` |
 
-即：网关能连、路由正常、模型存在，唯独这个 token 不被接受。需要重新生成令牌后再试。
-这次排查沉淀成了 `--probe`，下次不必手工 curl。
-
-**不要引用 self-test 的模型数字。** 它回答的是"harness 能不能跑"，不是"模型好不好"。
+这次排查沉淀成了 `python -m benchmark.runner --probe`。
 
 ## 6. 已知局限
 
-- 9 个案例样本很小，只能发现方向性问题，不能给出置信区间。
-- `expect` 由人工设定，带有主观判断（例如"这条应该拒答"）。
-- 只评估单轮输出，不评估"人看了报告后是否更快做出正确决定"——那需要真人实验。
-- 没有 token 成本数据，`model_cost` 恒为未测量。
-- 自检替身无法模拟"模型超时"和"编造引用"两类失败，所以这两案在 self-test 下必然 MISS；
-  它们由 `tests/test_agent.py` 与 `tests/test_security_hardening.py` 用脚本化客户端覆盖。
+- **样本极小**：真实模型只跑了 6 个用例。1 个用例的差异就是 17 个百分点，
+  所以"89% vs 61%"不能当作稳定的排序结论，只能说明方向。
+- **单次运行不可复现**：三次运行有 4 处判定翻转（见上）。报一次结果等于抽样。
+- **`expect` 是人工标注**，带主观判断。rubric 已经写明，但"5 次失败无成功登录该判 medium"
+  仍是我的判断，不是行业标准。
+- **规则基线的风险分数是同义反复**（见上），只有"能否表达不确定"这一项可比。
+- **只评估单轮输出**，不评估"人看了报告后是否更快做出正确决定"——那需要真人实验。
+- **金额成本未测**：只测了 token，单价未写死。
+- 三个故障注入用例（超时/假引用/工具失败）对真实模型不可用，已跳过；
+  它们由 `tests/test_agent.py`、`tests/test_security_hardening.py` 用脚本化客户端覆盖。
+- 只有一个 provider、一个模型。`deepseek-flash` 的结论不能外推到其他模型。
 
 ## 7. 怎么读这份结果
 
-- 想知道**规则系统够不够用**：看确定性基线那三行，尤其 60% 与 0%。
-- 想知道**模型是否值得引入**：必须跑 `--model real`，对比 `expectation_match_rate` 与
-  `refusal_appropriateness`，同时接受延迟和成本上升。
-- 想知道**Agent 是否优于单次模型**：对比 `agent` 与 `single_shot` 在多步/矛盾案例上的表现，
-  以及 `tool_call_success_rate` 带来的额外开销。
+- **想知道规则系统够不够用**：看 60% 与 0% 这两项。它不会拒答，也不会指出矛盾——
+  这不是实现缺陷，是模板方法的上限。
+- **想知道 Agent 值不值**：89% vs 61%，但代价是 11 倍输入 token、2 倍延迟，
+  且单次结果会在 83% 与 100% 之间跳。以 6 个用例的样本，**目前不足以证明工具调用带来了
+  与其成本相称的收益**。要回答这个问题，需要把用例扩到几十个并各跑多次。
+- **想知道该信哪个数字**：信 `--repeat 3` 的逐次值，不要信任何单次结果；
+  信引用有效率与结构通过率（这两项客观且稳定），谨慎对待风险等级（依赖人工 rubric）。
+
+## 8. 下一步最该做的
+
+1. **扩样本**：6 个可评分用例太少。至少 30 个，覆盖更多证据形态。
+2. **加一个客观的正确性信号**：现在 `expect` 全是人工判断。若能拿到人工标注的
+   "这条告警是否真实攻击"，`expectation_match_rate` 才真正可比。
+3. **不要急着优化 prompt**：在样本量不足时调 prompt 只会过拟合这 6 个用例。

@@ -32,13 +32,15 @@ class Metric:
     value: float | None = None
     measured: bool = True
     note: str | None = None
+    #: Render as a whole number (token counts) instead of a decimal.
+    integer: bool = False
 
     @property
     def display(self) -> str:
         if not self.measured or self.value is None:
             return "n/a"
         if self.denominator is None:
-            return f"{self.value:.1f}"
+            return str(int(self.value)) if self.integer else f"{self.value:.1f}"
         return f"{self.numerator}/{self.denominator} = {self.value:.0%}"
 
 
@@ -79,6 +81,17 @@ def meets_expectation(case: Case, result: BaselineResult) -> bool:
         return False
     if expect.get("should_cite") and not result.cited_ids:
         return False
+
+    # Some cases test whether an anomaly was noticed, not whether the answer
+    # picked one particular label. Only summary and reasoning count: the
+    # deterministic report ships a fixed limitations template that mentions
+    # clock skew in every report, so matching limitations would pass by
+    # boilerplate rather than by noticing anything.
+    needles = expect.get("must_mention_any")
+    if needles:
+        haystack = f"{result.summary} {result.reasoning}".lower()
+        if not any(needle.lower() in haystack for needle in needles):
+            return False
 
     risk = result.risk_level
     if risk is None:
@@ -207,14 +220,60 @@ def compute(
             )
         )
 
+    # Token usage is only reported when the provider actually returns it, so a
+    # zero here would be a lie: it stays None until measured.
+    prompt_tokens = [
+        result.prompt_tokens for _, result in applicable
+        if result.prompt_tokens is not None
+    ]
+    completion_tokens = [
+        result.completion_tokens for _, result in applicable
+        if result.completion_tokens is not None
+    ]
+    metrics.append(
+        Metric(
+            key="prompt_tokens",
+            label="输入 token 总数",
+            formula="sum(provider 返回的 prompt_tokens)",
+            scope="仅模型基线；provider 不返回 usage 时为未测量",
+            value=float(sum(prompt_tokens)) if prompt_tokens else None,
+            measured=bool(prompt_tokens),
+            note=(
+                f"基于 {len(prompt_tokens)} 个用例"
+                if prompt_tokens
+                else "provider 未返回 usage"
+            ),
+            integer=True,
+        )
+    )
+    metrics.append(
+        Metric(
+            key="completion_tokens",
+            label="输出 token 总数",
+            formula="sum(provider 返回的 completion_tokens)",
+            scope="仅模型基线；provider 不返回 usage 时为未测量",
+            value=float(sum(completion_tokens)) if completion_tokens else None,
+            measured=bool(completion_tokens),
+            note=(
+                f"基于 {len(completion_tokens)} 个用例"
+                if completion_tokens
+                else "provider 未返回 usage"
+            ),
+            integer=True,
+        )
+    )
     metrics.append(
         Metric(
             key="model_cost",
             label="模型调用成本",
-            formula="sum(token 数 x 单价)",
-            scope="需要 provider 返回 usage 字段",
+            formula="prompt_tokens x 输入单价 + completion_tokens x 输出单价",
+            scope="单价随 provider 与时间变化，不在代码里写死",
             measured=False,
-            note="当前客户端未采集 token 用量；接入真实模型后需补充",
+            note=(
+                "token 用量已测量（见上两行），金额需要按当前价目自行换算"
+                if prompt_tokens
+                else "provider 未返回 usage，无法换算金额"
+            ),
         )
     )
     return metrics

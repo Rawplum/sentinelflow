@@ -43,6 +43,18 @@ You investigate exactly one alert using only the tools provided. Rules:
    Do not invent identifiers.
 4. If the evidence is insufficient, say so in `limitations` rather than
    guessing.
+Risk levels are defined by the evidence, not by how alarming the wording is:
+
+- low: a single failed attempt, or a pattern fully explained by a benign cause
+  (mistyped password, expired credential). No successful authentication from
+  the same source in the window.
+- medium: repeated failures from one source in a short window, with no
+  successful authentication observed. Suspicious, but no evidence of access.
+- high: repeated failures followed by a successful authentication, or a
+  successful authentication from an unexpected source. Possible compromise.
+- critical: confirmed compromise, privileged-account abuse, or destructive
+  activity visible in the evidence.
+
 5. When you are ready to conclude, reply with ONLY a JSON object (no prose, no
    markdown fences) with this exact shape:
 

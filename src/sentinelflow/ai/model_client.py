@@ -74,6 +74,10 @@ class ModelTurn:
 
     tool_calls: list[ToolCallRequest] = field(default_factory=list)
     findings: AgentFindings | None = None
+    #: Token counts as reported by the provider, when it reports them. Used to
+    #: measure cost; never inferred or estimated locally.
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
 
 
 class ModelClient(Protocol):
@@ -176,6 +180,10 @@ def _parse_completion(body: dict[str, Any]) -> ModelTurn:
     except (KeyError, IndexError, TypeError) as exc:
         raise ModelClientError("Model response is missing choices") from exc
 
+    usage = body.get("usage") or {}
+    prompt_tokens = usage.get("prompt_tokens")
+    completion_tokens = usage.get("completion_tokens")
+
     raw_calls = message.get("tool_calls") or []
     calls: list[ToolCallRequest] = []
     for index, raw in enumerate(raw_calls):
@@ -199,12 +207,20 @@ def _parse_completion(body: dict[str, Any]) -> ModelTurn:
         )
 
     if calls:
-        return ModelTurn(tool_calls=calls)
+        return ModelTurn(
+            tool_calls=calls,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        )
 
     content = message.get("content")
     if not isinstance(content, str) or not content.strip():
         raise ModelClientError("Model returned neither tool calls nor content")
-    return ModelTurn(findings=parse_findings(content))
+    return ModelTurn(
+        findings=parse_findings(content),
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+    )
 
 
 def parse_findings(content: str) -> AgentFindings:

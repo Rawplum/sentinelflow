@@ -2,9 +2,10 @@
 
 最后更新：2026-10-25
 
-**一句话状态**：功能闭环已完成，并在 **SQLite 与 PostgreSQL 16.15 上全量验证**
-（后端 337 passed、前端 48 passed、迁移升降级全通），但 **真实模型仍未调用**，
-因此"AI 到底判得准不准"依然没有证据。详细状态与接手步骤见下一节。
+**一句话状态**：功能闭环已完成，**SQLite 与 PostgreSQL 16.15 全量验证**（后端 341 passed、前端 48 passed），
+**真实模型也已跑通**（DeepSeek-V4.1-Flash）：Agent 期望匹配 89% vs 规则引擎 60%，但代价是
+11 倍输入 token、2 倍延迟，且单次运行会在 83% 与 100% 之间跳。样本只有 6 个可评分用例，
+**不足以证明工具调用物有所值**。详细状态见下一节。
 
 ## 接手须知（先读这一段，约 1 分钟）
 
@@ -13,7 +14,7 @@
 ```bat
 git log --oneline           :: 看最近几次提交，判断上次做到哪
 git status --short          :: 有输出 = 有未提交改动，先看清楚再动手
-pytest -q                   :: 期望 337 passed, 1 skipped（SQLite）
+pytest -q                   :: 期望 341 passed, 1 skipped（SQLite）
 python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 拒答
 ```
 
@@ -25,8 +26,8 @@ python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 �
 | 项 | 值 |
 | --- | --- |
 | 迁移 head | `0006` |
-| 后端测试（SQLite） | 337 passed / 1 skipped |
-| 后端测试（PostgreSQL 16.15） | 337 passed；迁移测试单独跑 1 passed |
+| 后端测试（SQLite） | 341 passed / 1 skipped |
+| 后端测试（PostgreSQL 16.15） | 341 passed；迁移测试单独跑 1 passed |
 | 前端测试 | 48 passed / 12 files |
 | 已验证环境 | SQLite（内存 + 真实文件）、PostgreSQL 16.15 |
 | **未验证** | 真实模型调用、真实浏览器 |
@@ -36,9 +37,11 @@ python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 �
 1. **PostgreSQL 已经真实验证过**（2026-10-25）。`0001`–`0006` 全量升降级、`alembic check` 无差异、
    全量 pytest 通过、真实 Uvicorn + 队列 worker 全链路冒烟通过。
    `0006` 的 `drop_constraint` 分支已确认可执行。复现命令见 `docs/TESTING.md`。
-2. **模型基线没有任何真实数字**。`benchmark/` 的模型部分用自检替身，报告标 `mode: self_test`。
-   把它当作模型性能是错的。
-3. **确定性基线是唯一有真实数字的方案**：5/5 完成、3/5 期望匹配、0/2 证据不足拒答。
+2. **模型基线已有真实数字，但样本只有 6 个可评分用例**：Agent 16/18 = 89%、
+   单次模型 11/18 = 61%、规则引擎 3/5 = 60%。三次运行有 4 处判定翻转，
+   **任何单次结果都不能当结论**，要看 `--repeat` 的逐次值。
+3. **规则基线的风险分数是同义反复**：`risk_level` 直接取自用例里写死的 `alert.severity`。
+   它只有"不会拒答（0%）"这一项是真实短板。
 
 ### 读什么，不读什么
 
@@ -49,11 +52,9 @@ python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 �
 
 ### 下一步只有一件事
 
-**用真实模型跑一次基准**：先 `python -m benchmark.runner --probe` 确认端点可用，
-再 `python -m benchmark.runner --baseline all --model real`
-（需要 `LLM_PROVIDER` / `LLM_MODEL` / `LLM_API_BASE` / `LLM_API_KEY`）。
-重点看 `expectation_match_rate` 与 `refusal_appropriateness` 能否明显超过确定性基线的 60% / 0%。
-如果超不过，该停下来重新想产品，而不是继续加功能。
+**扩样本，而不是继续调 prompt。** 现在 6 个可评分用例、1 个模型、3 次运行，
+89% vs 61% 的差距在样本噪声之内。下一步是把用例扩到 30 个以上，最好能引入人工标注的
+"这条告警是否真实攻击"作为客观标签。在样本不足时优化 prompt 只会过拟合这 6 个用例。
 
 ## 1. 项目目标与技术栈
 
@@ -262,8 +263,8 @@ G:\软件开发\
 
 实际测试结果（累计，最新数字见 5.1 第五天验收结果）：
 
-- 全量 SQLite：`337 passed, 1 skipped`（迁移测试因未设置 PostgreSQL URL 跳过）。
-- 全量 PostgreSQL 16.15：`337 passed`；`tests/test_migrations.py` 单独跑 `1 passed`。
+- 全量 SQLite：`341 passed, 1 skipped`（迁移测试因未设置 PostgreSQL URL 跳过）。
+- 全量 PostgreSQL 16.15：`341 passed`；`tests/test_migrations.py` 单独跑 `1 passed`。
 - 既有 112 项测试全部继续通过，**未修改任何既有断言**。
 - 阶段 A 新增 78 项：告警详情、状态机、报告版本、证据分页、事件过滤、登录限流与令牌撤销。
 - 阶段 B 新增 27 项：Agent 白名单、参数校验、权限、作用域、预算、引用校验、日志脱敏、提示注入、模型失败/超时、非法结构化输出、空查询结果、失败审计。
@@ -537,7 +538,7 @@ docs/DECISIONS.md、docs/PLAN.md、docs/TESTING.md、docs/HANDOFF.md
 
 | 检查 | 结果 |
 | --- | --- |
-| 后端全量 | `337 passed, 1 skipped` |
+| 后端全量 | `341 passed, 1 skipped` |
 | Agent / 可观测性 / 评测 / 认证 RBAC 分组 | `97 passed` |
 | 评测集 | `13/13 passed`；`--repeat 3` 判定一致 |
 | 前端 | `33 passed / 9 files`；typecheck 通过；lint 0 warnings；build 通过 |
@@ -944,6 +945,62 @@ set LLM_API_KEY=<key>
 python -m benchmark.runner --probe
 python -m benchmark.runner --baseline all --model real
 ```
+
+## 5.9 第十三天（2026-10-25）：真实模型评测完成，以及它暴露的基准缺陷
+
+### 凭据
+
+`provider=deepseek`，`model=deepseek-flash`（DeepSeek-V4.1-Flash），`LLM_API_BASE=https://api.deepseek.com`。
+key 只通过命令行环境变量传入，未写入任何文件。
+
+### 真实结果（三次运行，不是一次）
+
+| 指标 | deterministic | single_shot | agent |
+| --- | --- | --- | --- |
+| 期望匹配率（逐次） | 60/60/60% | 50/67/67% | 83/100/83% |
+| 期望匹配率（合计） | **3/5 = 60%** | **11/18 = 61%** | **16/18 = 89%** |
+| 合理拒答 | 0% | 0/0/0% | 0/100/0% |
+| 引用有效率 | 100% | 100% | 100% |
+| 结构校验 | 100% | 100% | 100% |
+| 工具调用成功率 | — | — | 100%（28-31 次） |
+| 不安全操作拦截 | — | — | 1/1 |
+| 平均延迟 | 3 ms | 5.4-7.6 s | 9.6-10.6 s |
+| 输入 token / 6 用例 | — | 3.8k | **42-48k** |
+| 输出 token / 6 用例 | — | 4.7-6.6k | 7.7-8.6k |
+
+### 第一次跑出来的数字是 33%，那是基准的错
+
+首轮 `agent 3/9 = 33%`，比规则引擎还差。查下来两个缺陷都在基准侧：
+
+1. **三个用例对真实模型不可能通过**：`model_timeout` / `invalid_citation` / `tool_failure_recovery`
+   依赖注入故障。真实模型不会被强制超时或强制编造引用，`should_fail` 永远无法满足。
+   已加 `requires_fault_injection: true`，模型基线跳过并**显式打印**，覆盖仍由脚本化测试保证。
+2. **风险等级没有定义就拿来评分**：提示词只要求输出枚举值，从未说明各等级对应什么证据。
+   已在两处提示词（Agent system prompt、单次模型 prompt）写入 rubric，并按其重标两条用例
+   （`suspicious_bruteforce`、`prompt_injection_in_log` 的 `min_risk` 由 high 改 medium）。
+   **这是改标准**，所以改前（33%）改后（89%）的数字都保留，不隐藏。
+
+另外发现规则基线的风险分数是**同义反复**：`build_report` 的 `risk_level` 直接来自
+`alert.severity`，而后者是用例写死的输入。报告里该基线现在带 `caveat` 字段说明这点。
+
+### 顺带补的测量能力
+
+- **`--repeat N`**：连跑 N 次，报告哪些判定翻转、各比率波动区间。三次运行抓到 4 处翻转，
+  其中 `agent/insufficient_single_event` 在 run1 FAIL、run2 PASS。
+- **token 用量**：客户端解析 provider 返回的 `usage`，基准用 `CountingClient` 累加。
+  只在 provider 真的返回时才计——`0` 会看起来像"没有成本"，那是假的。
+  金额成本仍标 `not measured`，因为单价不该写死在代码里。
+- **`must_mention_any`**：用于"是否指出了时间线矛盾"这类期望。只匹配 summary + reasoning，
+  **不匹配 limitations**——规则报告的固定模板里就有 "may be inaccurate or skewed"，
+  匹配 limitations 会让它靠模板通过。
+
+### 结论
+
+Agent 比规则引擎准（89% vs 60%），差距来自两件规则引擎做不到的事：承认证据不足、
+指出时间线自相矛盾。但 **Agent 不比单次模型明显更准**（89% vs 61%），而输入 token 是 11 倍。
+以 6 个用例的样本，这个差距在噪声之内——**还不能说工具调用值这个成本**。
+
+下一步不是调 prompt，是扩样本（见 `docs/BENCHMARK.md` §8）。
 
 ## 6. 环境准备、数据库、用户、启动和测试
 

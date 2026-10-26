@@ -70,7 +70,15 @@ def test_deterministic_baseline_cannot_refuse_insufficient_evidence() -> None:
     payload = run(["deterministic"], "none")
 
     refusal = _metric(payload, "deterministic", "refusal_appropriateness")
-    assert refusal["denominator"] == 2
+    # The denominator must equal the number of cases that ask for a refusal, so
+    # adding a case cannot silently dilute the metric.
+    refusing = [
+        case
+        for case in load_cases()
+        if case.expect.get("should_refuse") and "deterministic" in case.applicable_to
+    ]
+    assert refusal["denominator"] == len(refusing)
+    # A template can only ever state the rule's own conclusion.
     assert refusal["numerator"] == 0
 
     misses = [
@@ -85,9 +93,17 @@ def test_agent_baseline_answers_with_valid_citations() -> None:
     payload = run(["agent"], "self-test")
 
     block = payload["baselines"]["agent"]
-    assert block["applicable_cases"] == 9
+    # Three cases need an injected fault (timeout, bad citation, tool error).
+    # A model baseline cannot reproduce those, so they are skipped and reported
+    # rather than scored against a failure the model has no way to produce.
+    assert block["applicable_cases"] == 6
+    assert {item["case"] for item in payload["skipped"]} == {
+        "invalid_citation",
+        "model_timeout",
+        "tool_failure_recovery",
+    }
     answered = [row for row in block["cases"] if row["produced_answer"]]
-    assert len(answered) == 9
+    assert len(answered) == 6
     assert all(row["citations_valid"] for row in answered)
 
     tool_metric = _metric(payload, "agent", "tool_call_success_rate")
@@ -181,6 +197,27 @@ def test_synchronous_investigation_actually_runs(
 # --- preflight --------------------------------------------------------------
 
 
+def test_fault_injection_cases_are_never_silently_dropped() -> None:
+    """Skipping is allowed; hiding it is not."""
+    payload = run(["agent"], "self-test")
+
+    flagged = {
+        case.id for case in load_cases() if case.requires_fault_injection
+    }
+    reported = {item["case"] for item in payload["skipped"]}
+
+    assert flagged == reported
+    assert flagged, "the dataset should still declare which cases need injection"
+
+
+def test_deterministic_baseline_is_not_scored_on_its_own_input() -> None:
+    """The rule engine copies risk from alert severity, so the caveat must show."""
+    payload = run(["deterministic"], "none")
+
+    assert payload["baselines"]["deterministic"]["caveat"]
+    assert "tautological" in payload["baselines"]["deterministic"]["caveat"]
+
+
 def test_preflight_fails_closed_without_configuration(monkeypatch) -> None:
     from benchmark.preflight import probe
 
@@ -239,3 +276,57 @@ def test_preflight_reports_a_rejected_key(stub_provider, monkeypatch) -> None:
     get_settings.cache_clear()
 
     assert probe() == 2
+
+
+# --- scoring rules ----------------------------------------------------------
+
+
+def test_anomaly_cases_ignore_the_limitations_boilerplate() -> None:
+    """The rule report always says timestamps 'may be skewed'.
+
+    If that counted as noticing the anomaly, the case would pass by boilerplate
+    instead of by reading the data.
+    """
+    from benchmark.baselines import BaselineResult
+    from benchmark.metrics import meets_expectation
+
+    case = next(c for c in load_cases() if c.id == "contradictory_timestamps")
+    boilerplate = BaselineResult(
+        baseline="deterministic",
+        case_id=case.id,
+        scenario=case.scenario,
+        produced_answer=True,
+        risk_level="medium",
+        summary="Rule AUTH-001 fired on 5 failed attempts.",
+        reasoning="The rule counts failures in a window.",
+        limitations=["Event timestamps may be inaccurate or skewed."],
+        cited_ids=["a"],
+    )
+    assert meets_expectation(case, boilerplate) is False
+
+    noticing = BaselineResult(
+        baseline="agent",
+        case_id=case.id,
+        scenario=case.scenario,
+        produced_answer=True,
+        risk_level="high",
+        summary="The success is sandwiched between failures.",
+        reasoning="The evidence is internally contradictory: one event carries a "
+        "clock skew marker.",
+        limitations=["Ordering cannot be trusted."],
+        cited_ids=["a"],
+    )
+    assert meets_expectation(case, noticing) is True
+
+
+def test_repeat_reports_whether_verdicts_moved() -> None:
+    from benchmark.runner import _stability
+
+    first = run(["deterministic"], "none")
+    second = run(["deterministic"], "none")
+
+    stability = _stability([first, second])
+
+    # The rule engine is deterministic, so nothing may move between runs.
+    assert stability["flips"] == []
+    assert stability["rates"]["deterministic"]["expectation_match_rate"]

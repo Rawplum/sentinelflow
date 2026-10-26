@@ -103,7 +103,7 @@ data/sample_events.jsonl
 | P2-10 | 真实模型评测 | 未开始 | 需凭据与人工标注集；当前指标明确标注 Mock |
 | P2-11 | 持久化任务队列 | 完成 | 数据库表 + 租约 + 单线程 worker；pending/running/终态、重试上限、崩溃回收 |
 | P2-12 | Agent 对比基准 | 完成（模型部分未测） | `benchmark/`：规则 / 单次模型 / Agent 三方对比；确定性基线已出真实数字 |
-| P2-13 | 真实模型评测 | 未开始 | 需要 `LLM_*` 凭据；`python -m benchmark.runner --model real` 已就绪 |
+| P2-13 | 真实模型评测 | 完成（样本不足） | DeepSeek-V4.1-Flash 三次运行：Agent 16/18 vs 规则 3/5；6 个可评分用例太少 |
 
 前置条件：确定性基线稳定；鉴权、审计、报告持久化完成（均已满足）。
 

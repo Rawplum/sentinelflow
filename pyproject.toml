@@ -39,7 +39,7 @@ sentinelflow-doctor = "sentinelflow.cli.doctor:main"
 [tool.mypy]
 python_version = "3.11"
 mypy_path = "src"
-files = ["src/sentinelflow", "tests"]
+files = ["src/sentinelflow", "tests", "scripts", "perf", "benchmark", "evaluation"]
 # Third-party stubs are incomplete (psycopg, FastAPI internals); silence the
 # missing-stub noise rather than pinning stub packages that drift.
 ignore_missing_imports = true

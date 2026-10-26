@@ -149,7 +149,8 @@ def _wait_until_ready(server: Server, timeout: float = 60.0) -> None:
     last: Exception | None = None
     while time.monotonic() < deadline:
         if server.process.poll() is not None:
-            stderr = server.process.stderr.read().decode("utf-8", "replace")[-2000:]
+            stream = server.process.stderr
+            stderr = stream.read().decode("utf-8", "replace")[-2000:] if stream else ""
             raise RuntimeError(f"server exited early:\n{stderr}")
         try:
             with urllib.request.urlopen(
@@ -225,7 +226,7 @@ class Client:
             auth=False,
         )
         if status != 200:
-            raise RuntimeError(f"login failed: {status} {data[:200]}")
+            raise RuntimeError(f"login failed: {status} {data[:200]!r}")
         self.token = json.loads(data)["access_token"]
 
 

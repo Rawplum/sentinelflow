@@ -111,4 +111,4 @@ pytest -q tests/test_agent.py tests/test_investigation_queue.py
 pytest -q
 ```
 
-当前结果：安全负向测试 **46 项全部通过**；后端全量 **318 passed, 1 skipped**。
+当前结果（2026-10-26）：`test_security_hardening.py` **46 项通过**、`test_agent.py` 27 项、`test_investigation_queue.py` 12 项；后端全量 **362 passed, 3 skipped**（跳过项见 `docs/TESTING.md` §2.4）。

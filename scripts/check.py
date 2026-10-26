@@ -27,7 +27,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
 
-PYTHON_TARGETS = ["src", "tests", "benchmark", "perf", "evaluation", "migrations"]
+# scripts/ is included on purpose: the checker is code too.
+PYTHON_TARGETS = [
+    "src",
+    "tests",
+    "benchmark",
+    "perf",
+    "evaluation",
+    "migrations",
+    "scripts",
+]
 
 
 @dataclass
@@ -53,7 +62,9 @@ def _npm() -> str | None:
     return shutil.which("npm")
 
 
-def build_steps(*, include_frontend: bool, include_tests: bool, with_db: bool) -> list[Step]:
+def build_steps(
+    *, include_frontend: bool, include_tests: bool, with_db: bool
+) -> list[Step]:
     python = sys.executable
     steps = [
         Step(
@@ -112,9 +123,16 @@ def build_steps(*, include_frontend: bool, include_tests: bool, with_db: bool) -
         else:
             steps.extend(
                 [
-                    Step("frontend lint", [npm, "run", "lint"], FRONTEND, detail="eslint"),
+                    Step(
+                        "frontend lint", [npm, "run", "lint"], FRONTEND, detail="eslint"
+                    ),
                     Step("frontend tests", [npm, "test"], FRONTEND, detail="vitest"),
-                    Step("frontend build", [npm, "run", "build"], FRONTEND, detail="vite build"),
+                    Step(
+                        "frontend build",
+                        [npm, "run", "build"],
+                        FRONTEND,
+                        detail="vite build",
+                    ),
                 ]
             )
     return steps
@@ -138,13 +156,17 @@ def run_step(step: Step, *, fail_fast: bool) -> Result:
     )
     seconds = time.perf_counter() - started
     output = (completed.stdout or "") + (completed.stderr or "")
-    return Result(step, "PASS" if completed.returncode == 0 else "FAIL", seconds, output)
+    return Result(
+        step, "PASS" if completed.returncode == 0 else "FAIL", seconds, output
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run every SentinelFlow check.")
     parser.add_argument("--backend-only", action="store_true", help="skip the frontend")
-    parser.add_argument("--frontend-only", action="store_true", help="skip Python checks")
+    parser.add_argument(
+        "--frontend-only", action="store_true", help="skip Python checks"
+    )
     parser.add_argument("--fast", action="store_true", help="skip tests")
     parser.add_argument(
         "--with-db",
@@ -152,7 +174,9 @@ def main(argv: list[str] | None = None) -> int:
         help="also run `alembic check` (needs DATABASE_URL)",
     )
     parser.add_argument("--list", action="store_true", help="print the steps and exit")
-    parser.add_argument("--fail-fast", action="store_true", help="stop at the first failure")
+    parser.add_argument(
+        "--fail-fast", action="store_true", help="stop at the first failure"
+    )
     args = parser.parse_args(argv)
 
     include_frontend = not args.backend_only
@@ -196,7 +220,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if failed:
         print()
-        print(f"{len(failed)} step(s) failed: {', '.join(item.step.name for item in failed)}")
+        print(
+            f"{len(failed)} step(s) failed: {', '.join(item.step.name for item in failed)}"
+        )
         return 1
     if skipped:
         print()

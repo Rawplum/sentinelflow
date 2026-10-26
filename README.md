@@ -46,6 +46,7 @@ SentinelFlow 是一个 AI 辅助的安全事件研判与响应平台。当前版
 | 性能与并发实测 | 已实现，修复 4 个问题 | `perf/`；96k 事件下的 P50/P95 见 `docs/PERFORMANCE.md` |
 | 静态检查与类型 | 已接入，0 告警 | ruff 0 问题、mypy 89 文件 0 错误 |
 | CI | 已配置，未在真实 runner 上跑过 | `.github/workflows/ci.yml`，3 个必需 job + 1 个可选 |
+| V1.0 验收 | 完成，65/65 检查通过 | 见 `docs/V1_ACCEPTANCE.md` |
 | 真实浏览器 E2E | 已实现，16 项通过 | `e2e/browser.mjs`（真实 Chromium + 真实后端） |
 | 调查过程追踪 | 已实现，测试通过 | `investigation_rounds` + 轮次/工具耗时 + `duration_ms` + `request_id` |
 | 前端调查闭环 | 已实现，测试通过 | 告警详情页启动调查、轮询状态、查看步骤/工具/报告、失败重试 |
@@ -607,6 +608,18 @@ python scripts/check.py
 **跳过的是什么**：`362 passed, 3 skipped` 里的 3 项——1 项迁移测试（需要真实 PostgreSQL）
 和 2 项并发回归测试（SQLite 忽略 `FOR UPDATE`，既复现不了竞态也证明不了修复）。
 
+### 端到端验收
+
+`scripts/acceptance.py` 自己起服务、自带桩模型、从空库开始，逐项打印 PASS/FAIL：
+
+```bat
+python scripts/acceptance.py --database sentinelflow --reset
+```
+
+它覆盖登录/权限/审计、导入/检测/告警、调查全流程、报告版本与定稿、失败与超时、
+重复请求。**会 DROP 并重建指定的数据库**，只对专用验收库使用。
+实际结果见 `docs/V1_ACCEPTANCE.md`。
+
 ### 用真实 PostgreSQL 跑
 
 ```bat
@@ -779,14 +792,20 @@ alembic downgrade 0001
 - 登录限流基于数据库，**不防护能直接写数据库的攻击者**，也不能替代反向代理层全局限流。
 - 没有 TLS 终止、反向代理或密钥轮换方案。
 - FastAPI `/docs`、`/redoc`、`/openapi.json` 默认公开，会暴露 API 结构；生产环境应禁用或限制访问。
-- **Agent 只用 Mock 模型验证过**，没有真实模型调用记录；真实模型的结论质量、延迟和成本均未评估。
-- **没有固定评测集和准确率指标**；Agent 测试覆盖的是安全边界（白名单、预算、引用校验、注入），不是研判质量。
-- Agent 同步执行，一次请求会阻塞到调查结束（默认上限 5 轮 + 8 次工具调用）；没有后台任务队列。
+- **Agent 质量只用过一个模型测过**：DeepSeek-V4.1-Flash，25 个合成用例，两次运行。
+  期望匹配 Agent 41/44、单次模型 37/44、规则 13/18；但 22 个可评用例、两次运行 5 处判定翻转，
+  结论只能说明方向，不能外推到其他模型或真实日志。
+- **评测集的期望是作者一个人定的**，rubric 改过两版。`expectation_match_rate` 衡量的是
+  "与作者判断一致的程度"，不是客观正确率。
+- **Agent 异步执行**：`POST /investigations` 只入队并立即返回 202，由数据库队列 worker 领取执行；
+  任务有租约、重试上限和超时，卡死的任务会被回收。单进程单 worker，多副本并发未验证。
 - 工具超时通过线程池实现，超时后工作线程不会被强制终止。
-- 没有自动响应、扫描或阻断能力；Agent 只产出草稿报告。
-- Docker Compose 未在当前机器验证；PostgreSQL 上 `0003`/`0004` 迁移验证待补做。
-- Git 仓库已初始化但**没有任何提交**，当前无法用 `git diff` 追溯变更。
-- SQLite 仅用于测试，不保证与 PostgreSQL 完全一致的并发和类型行为。
+- 没有自动响应、扫描或阻断能力；Agent 只产出草稿报告，定稿需要管理员操作。
+- **不提供容器化部署**（DECISIONS D-050）。PostgreSQL 迁移 `0001`→`0006` 已在真实 PG 上验证升降级。
+- SQLite 仅用于测试，不保证与 PostgreSQL 完全一致的并发和类型行为；
+  两条并发回归测试因此只在 PostgreSQL 下执行。
+- 金额成本未测量（未写死单价）；token 数量已实测。
+- **CI 工作流已配置但没有在真实 runner 上跑过**（本机无远程仓库）。
 
 ### 安全验证记录（认证/RBAC/审计/限流/撤销）
 

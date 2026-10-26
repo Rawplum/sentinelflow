@@ -1205,6 +1205,47 @@ CI 的三个必需 job 调用同一个脚本，所以本地和 CI 不会漂移�
 - **CI 没有在本机跑过**：本机没有远程仓库、没有 Actions runner。
   工作流用 PyYAML 校验过结构，命令与本地脚本一致，但"CI 真的绿了"这件事**没有验证**。
 
+## 5.14 第十八天（2026-10-26）：V1.0 验收
+
+完整报告在 **`docs/V1_ACCEPTANCE.md`**。结论：**达到 V1.0 发布候选**。
+
+### 怎么验的
+
+全新 venv（`pip install -e ".[dev]"`，50 个包）+ 全新 PG 集群（空库）+ 桩模型。
+按 README 走：doctor → `alembic upgrade head`（6 级）→ 建用户 → 起服务 →
+`scripts/acceptance.py --reset` → 65/65 通过 → 前端 build/test → 浏览器 E2E 16/16。
+
+### 结果
+
+| 项 | 数字 |
+| --- | --- |
+| 后端 SQLite | 362 passed / 3 skipped |
+| 后端 PostgreSQL 16.15 | 364 passed / 1 skipped |
+| 迁移升降级 | 1 passed |
+| 前端 | 48 passed / 12 files，lint 0，build 通过 |
+| 浏览器 E2E | 16/16 |
+| 端到端验收 | 65/65 |
+| 安全测试 | 86 passed |
+| 静态检查 | ruff 0、mypy 107 文件 0 错误 |
+| `alembic check` | 无漂移 |
+
+### 发现并修的问题
+
+没有产品阻塞缺陷。三类**发布质量**问题：
+
+1. **README「已知限制」整段过期**（说没有队列、没有评测集、Git 无提交）——会误导评审者，重写。
+2. **SECURITY.md 测试数字过期**（318 → 362）。
+3. **`scripts/` 不在检查范围**——检查脚本自己不被检查。纳入后发现 5 处格式、2 处类型问题，已修。
+
+顺带：`benchmark/` 补 `__init__.py`（mypy 曾把同一文件当成两个模块）；
+DECISIONS 开头加阅读提示（早期 Docker 建议已被 D-050 取代）。
+
+### 没做的事
+
+- 没有为了过验收禁用检查、删测试或放宽断言。
+- 没有重跑付费的真实模型基准（昨日数据仍有效，代码路径未改）。
+- 没有验证 Docker（已移除）、CI runner、macOS/Linux、多副本 worker。
+
 ## 6. 环境准备、数据库、用户、启动和测试
 
 ### 安装

@@ -18,7 +18,7 @@
 ```text
 $ .venv\Scripts\python.exe -m pytest -q
 ... [100%]
-365 passed, 1 skipped
+358 passed, 1 skipped
 ```
 
 跳过的是 `tests/test_migrations.py`，原因是没有设置 `MIGRATION_TEST_DATABASE_URL`。
@@ -53,7 +53,7 @@ pytest -q
 
 ```text
 == pytest -q（全量，TEST_DATABASE_URL 指向 PostgreSQL）==
-365 passed, 1 skipped          # 跳过的是未设置 MIGRATION_TEST_DATABASE_URL 的场景
+358 passed, 1 skipped          # 跳过的是未设置 MIGRATION_TEST_DATABASE_URL 的场景
 
 == pytest tests/test_migrations.py（设置 MIGRATION_TEST_DATABASE_URL）==
 1 passed
@@ -192,98 +192,56 @@ all browser checks passed
 刷新能否从 URL 恢复调查、退出后受保护路由是否跳登录页。
 **它不证明什么**：模型质量（模型是 stub）、跨浏览器兼容（只有 Chromium）、性能。
 
-### Docker Compose 栈的等价验证（2026-10-25）
+### 从零启动路径（2026-10-25 验证）
 
-本机**没有 Docker daemon**，WSL 也被安全策略阻断，所以 `compose.yaml` 无法在这里实际启动。
-分三层补上能补的部分。
+容器化部署已移除（DECISIONS D-050），因为在本机从未能执行。改为验证一条真实可跑的本地路径，
+顺序与 README 完全一致。
 
-#### 1. 静态校验：`tests/test_deploy_config.py`（17 项）
+#### 1. `sentinelflow-doctor`（`tests/test_doctor.py`，10 项）
 
-不需要 daemon，解析文件并断言那些"写错了要到运行时才炸"的约束：
+一个诊断工具如果自己会挂住，比不诊断更糟。所以它被当成产品代码测：
 
-| 检查 | 为什么 |
+| 检查 | 断言 |
 | --- | --- |
-| 服务齐全（db/migrate/api/web），migrate 与 api 共用同一镜像上下文 | 否则迁移和运行可能不是同一份代码 |
-| 每个长驻服务都有 healthcheck 且带 `start_period` | 没有 start_period 会把慢启动误判为失败 |
-| `api` 依赖 `migrate` 的 `service_completed_successfully` | 写成 `service_started` 会让 API 在表建好前启动 |
-| `migrate` 的 `restart` 为 `"no"` | 崩溃循环会掩盖真实错误 |
-| 数据在命名卷 `sentinelflow_pgdata` | 否则 `down` 就丢数据 |
-| 所有 `ports` 以 `127.0.0.1:` 开头 | 这套栈没有 TLS，不能暴露到网络 |
-| 无 `privileged` / `network_mode: host` | —— |
-| `JWT_SECRET`、`POSTGRES_PASSWORD` 必须是 `${...:?}` | 缺值时 compose 直接拒绝启动，而不是用默认值 |
-| `DATABASE_URL` 指向 `db:5432` 且由 `POSTGRES_*` 拼出 | 容器里的 `127.0.0.1` 是容器自己 |
-| `migrate` 与 `api` 的 environment 完全相同 | 否则两者可能指向不同数据库 |
-| API 镜像有 `USER`、无 `COPY . .` | 非 root；避免把 `.env` 烘进镜像层 |
-| `.dockerignore` 排除 `.env` / `.venv` / `node_modules` | 同上 |
-| 前端镜像多阶段、用 `npm ci`、基于 nginx-unprivileged | 构建依赖不进运行时；锁文件生效 |
-| nginx 反代 `/api` 且有 SPA 回退与 `/healthz` | 深链接刷新不能 404 |
-| `.env.example` 只有 `CHANGE_ME`，无真实密钥 | —— |
+| 缺 `JWT_SECRET` | FAIL，并给出生成命令 |
+| secret 短于 32 字符 | FAIL，说明长度要求 |
+| secret 还是 `.env.example` 里的值 | FAIL（示例值等于公开） |
+| 正常 secret | OK |
+| `DATABASE_URL` 为空 | FAIL |
+| 数据库连不上 | FAIL，且 **DSN 里的密码被掩码成 `***`** |
+| 未迁移的库 | FAIL，并给出 `alembic upgrade head` |
+| 多项失败 | 退出码 2，且**逐项列出**而不是遇到第一个就停 |
 
-**这些检查不是摆设**：对 compose 做变异（端口改 `8080:8080`、删 healthcheck、
-依赖改 `service_started`、写死 JWT_SECRET、DSN 改 `127.0.0.1`）后，对应断言全部会失败。
+`check_database` 对 PostgreSQL 加 `connect_timeout=5`——否则数据库没起时 doctor 会挂住
+（写这个测试时真的挂住了，才发现缺这个参数）。
 
-#### 2. 命令级等价验证（真实执行）
+#### 2. 空库走一遍（真实执行）
 
-用一个**全新的空 PostgreSQL 集群**（新数据目录，模拟空 volume），按容器里的同一串命令跑：
+新集群、新库，然后严格按 README 的顺序：
 
 ```text
-initdb → createdb → alembic upgrade head        （= migrate 容器的 command）
-→ uvicorn --host 0.0.0.0 --proxy-headers        （= api 镜像的 CMD）
+createdb sentinelflow
+doctor            → FAIL migrations (no alembic_version table) / FAIL users
+alembic upgrade head  → 6 级，0001→0006
+doctor            → OK migrations 0006 (head) / WARN users (no users yet)
+sentinelflow-create-user（服务层，非交互）
+doctor            → All checks passed，并打印下一条命令
+uvicorn --host 127.0.0.1 --port 8000
+/health/ready     → 200 {"status":"ready","database":"ok"}
+登录 → 导入样例(CLI) → 检测(2 告警) → 浏览器 E2E 16 项全通过
 ```
 
-实测结果：
+doctor 在每一步都给出了**下一步该敲的命令**，没有出现"报错但不说怎么办"的情况。
 
-```text
-1  readiness             200
-2  login                 200
-3  import via CLI        exit 0
-4  detection             200 alerts= 2
-5  alert detail          200 open evidence= 5
-6  POST investigation    202 pending
-7  investigation final   200 succeeded rounds=2 tools=1
-8  report                200 agent draft cited=3
-9  audit                 200 ['audit.view','auth.login','detections.run',
-                              'investigations.complete','investigations.run',
-                              'reports.read','users.create']
-10 logout               204 | reuse token: 401
-```
+#### 3. 浏览器端到端
 
-迁移在空库上跑了 6 级（`0001`→`0006`），`alembic current` 为 `0006 (head)`。
+`e2e/browser.mjs` 对这条本地路径跑一遍：16 项全通过（见上文「真实浏览器端到端」）。
 
-**持久化验证**：直接杀掉 PostgreSQL 进程再用同一数据目录重启，然后重新查询——
+#### 未验证
 
-```text
-/health/ready          → 200 {"status":"ready","database":"ok"}
-alerts                 → 2（各 5 条证据）
-events                 → 24
-audit rows             → 24
-```
-
-数据在进程重启后仍在，说明持久化落在数据目录/卷上，不在进程内存里。
-
-#### 3. 生产构建 + 同源代理
-
-`npm run build` 产出 454 KB（gzip 后约 139 KB）。然后用按 `frontend/nginx.conf` 实现的
-静态服务 + `/api` 反代托管 `dist/`，验证：
-
-```text
-GET /healthz                    → 200 "ok"
-GET /                       → 200（index.html）
-GET /alerts/<uuid>          → 200（SPA 回退，返回 index.html 而非 404）
-GET /health                 → 200（代理到 API）
-GET /api/v1/alerts 无 token → 401（代理生效）
-```
-
-再跑完整浏览器 E2E（`E2E_BASE_URL=http://localhost:8080`）：**16 项全通过**。
-这证明生产构建产物在"同源 + 相对路径 `/api/v1`"的部署形态下可用，
-而不是只能在 Vite dev server 的代理下工作。
-
-#### 仍然未验证
-
-- **镜像构建本身**（`docker build`）：本机无 daemon。
-- **容器网络与 DNS**（`api:8000` 能否解析）：只能由 compose 运行时证明。
-- **健康检查的真实触发**：compose 的 healthcheck 语义（重试、start_period）没跑过。
-- **非 root 用户的实际权限**：Dockerfile 里声明了 `USER app`，但没有在容器里跑过。
+- 在**干净的机器**上装 PostgreSQL 这一步（本机用的是免安装二进制包）。
+- macOS / Linux 上的同一套命令（本机是 Windows）。
+- 非交互地执行 `sentinelflow-create-user`（它刻意只接受交互式输入）。
 
 ### 其他验收检查
 
@@ -295,7 +253,7 @@ GET /api/v1/alerts 无 token → 401（代理生效）
 | 冲突标记扫描 | 未发现 |
 | 行尾空白扫描 | 未发现 |
 | `git status` / `git diff --check` | 无法执行：本机未安装 Git |
-| Docker Compose | 无法执行：本机未安装 Docker |
+| 容器化部署 | 已移除：本机无法执行（DECISIONS D-050） |
 
 `git diff --check` 的替代检查只覆盖冲突标记和行尾空白，不等同于 Git 的完整差异检查。
 
@@ -314,7 +272,7 @@ pytest -q
 -> 112 passed, 1 skipped
 
 PostgreSQL 16.15 + pytest -q
--> 365 passed, 1 skipped
+-> 358 passed, 1 skipped
 ```
 
 OpenAPI 实际安全要求：
@@ -349,7 +307,7 @@ OpenAPI 实际安全要求：
 | `tests/test_investigation_observability.py` | 轮次落库与顺序、模型失败轮次、预算轮次、`duration_ms`/`request_id`、追踪不含日志原文、中断回收、CLI 未配置时失败关闭、并发防重 409、过期行不阻塞、重复执行幂等、追踪不含凭证 |
 | `tests/test_eval_suite.py` | 13 个评测用例参数化 + 场景覆盖断言 + 指标未测量时不得伪造 |
 | `tests/test_alert_filters_api.py` | 告警列表按状态/严重性过滤、组合过滤、筛选后 total 与分页一致、非法枚举 422、未认证 401 |
-| `tests/test_deploy_config.py` | compose 四服务齐全、每个长驻服务有 healthcheck、启动顺序用 `service_completed_successfully`、数据在命名卷、端口全绑 127.0.0.1、无明文密钥、DSN 指向 `db:5432`、镜像非 root 且无 `COPY . .`、`.dockerignore` 排除 `.env`、nginx 反代与 SPA 回退（17 项） |
+| `tests/test_doctor.py` | 环境诊断：缺 secret / secret 过短 / 示例值 / 数据库不可达（密码掩码）/ 未迁移 / 多项失败退出码 2（10 项） |
 | `tests/test_report_accuracy.py` | 截断报告与分页报告的窗口必须取自告警而非当前页；4 失败 + 1 成功不得被写成"5 次失败" |
 | `tests/test_benchmark.py` | 基准数据集覆盖 9 类场景、确定性基线 100% 完成、**规则系统无法拒答**（0/2）、Agent 引用有效、self-test 不声称成本、判定可重复、同步调查入口真的执行（回归）、`--probe` 未配置时失败关闭 / 端点可用时通过 / 401 时失败、故障注入用例跳过时必须显式报告、规则基线必须带同义反复 caveat、`must_mention_any` 不得被 limitations 模板命中、`--repeat` 必须报告判定翻转 |
 | `tests/test_security_hardening.py` | 10 类攻击面的负向测试：提示注入不扩权、analyst 越权、参数跨告警、9 个非白名单工具、15 种畸形参数、无 SQL/命令/网络逃逸口、越界引用、凭据不外泄、体积/队列/时长上限、无限调用与重试（46 项） |
@@ -433,9 +391,9 @@ set "MIGRATION_TEST_DATABASE_URL=postgresql+psycopg://user:password@127.0.0.1:54
 ### PostgreSQL
 
 - 由 Alembic 迁移创建结构；测试的 `create_all` 只作为幂等兜底。
-- 建议通过 Docker Compose 或本机 PostgreSQL 提供。
+- 通过本机 PostgreSQL 16 提供；`alembic upgrade head` 建表。
 - 本次验证使用 **PostgreSQL 16.15 免安装二进制包**起的临时集群（数据目录在 `%TEMP%`，端口 55432），
-  不写系统、不注册服务、不写入 `pyproject.toml`。正式环境仍推荐 Docker Compose（`compose.yaml` 固定 `postgres:16-alpine`）。
+  不写系统、不注册服务、不写入 `pyproject.toml`。日常开发建议装本机 PostgreSQL 16，一次装好即可。
 
 ## 6. 测试数据原则
 
@@ -603,7 +561,7 @@ login → import(5) → detection(1 alert) → alert detail → evidence page
   HTTP 协议路径（请求体、鉴权头、tool_calls/findings 解析、5xx、超时、Key 不外泄、端到端调查），
   但这只证明**客户端能正确收发 OpenAI 兼容协议**；真实模型的输出质量、延迟、token 成本仍未测量。
 - **研判质量仍未测量**：`benchmark/` 的装置已就绪，但模型基线未用真实模型运行（无凭据）。
-- Docker Compose 启动未验证（当前机器无 Docker）。
+- 容器化部署不可用（已移除，见 DECISIONS D-050）；当前只支持本地运行。
 - README 的 Linux/macOS 命令未在本机执行（当前为 Windows）。
 - 没有 CI、覆盖率门槛。
 - 没有并发压力测试；`(alert_id, version)` 与 `dedup_key` 的唯一约束冲突路径有代码处理，但没有并发集成测试。
@@ -637,7 +595,7 @@ login → import(5) → detection(1 alert) → alert detail → evidence page
 
 ### 已实现但尚未通过实际测试
 
-- `compose.yaml` 的 Docker Compose 启动（无 Docker）。
+- 容器化部署（已移除；当前环境无法执行，见 DECISIONS D-050）。
 - Linux/macOS 启动命令（未在对应平台执行）。
 - PostgreSQL 上的 `0003`/`0004` 迁移与全量测试。
 - 多 worker / 多实例下的限流一致性。

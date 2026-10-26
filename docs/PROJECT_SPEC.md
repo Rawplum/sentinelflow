@@ -70,7 +70,8 @@ SentinelFlow 帮助安全运营团队把分散的日志转化为可调查、可�
 - [x] `.env` 被 Git 忽略，`.env.example` 不含真实凭据。
 - [x] 本地数据库端口只绑定 `127.0.0.1`。
 - [x] 8 份要求文档已填写，并明确区分已实现、已测试和计划中。
-- [ ] Docker Compose 启动验证（受当前机器缺少 Docker 阻塞）。
+- [x] 本地启动路径已端到端验证（`sentinelflow-doctor` → 迁移 → 建用户 → API → 浏览器 E2E）。
+- [—] 容器化部署：已移除，当前环境无法验证（DECISIONS D-050）。
 - [x] Git 仓库已初始化（2026-10-23），`.gitignore` 已确认排除 `.env`、`.venv`、`node_modules`、`dist`。
 
 ### 6.2 Phase 1 验收
@@ -104,7 +105,7 @@ SentinelFlow 帮助安全运营团队把分散的日志转化为可调查、可�
 
 - 单机、单进程的模块化单体优先。
 - 同步 SQLAlchemy，数据库为 PostgreSQL。
-- 本地开发通过 `uvicorn` + Docker Compose 中的 PostgreSQL 运行。
+- 本地开发通过 `uvicorn` + 本机 PostgreSQL 16 运行。
 - 所有时间使用 UTC 存储，API 使用 ISO 8601。
 - 所有测试数据必须是合成的，不包含真实日志、个人信息或凭据。
 - 在认证授权完成前，服务只能绑定回环地址。

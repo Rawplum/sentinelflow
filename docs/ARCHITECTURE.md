@@ -375,10 +375,11 @@ python -m evaluation.run
 本机
 ├── uvicorn (127.0.0.1:8000)
 └── PostgreSQL 16
-    └── Docker Compose（推荐）或本机实例，绑定 127.0.0.1:5432
+    └── 本机 PostgreSQL 16 实例，绑定 127.0.0.1:5432
 ```
 
-本次验证使用临时嵌入式 PostgreSQL 16.2，因为当前机器没有 Docker。Compose 文件已提供但尚未运行验证。
+本次验证使用临时嵌入式 PostgreSQL 16.2。项目不提供容器化部署：那部分无法在当前环境验证，
+保留它就是保留一份没人跑过的承诺（见 DECISIONS D-050）。
 
 不引入反向代理、Kubernetes、消息队列或独立缓存。需要这些组件时，必须先有可量化的性能或可靠性依据。
 

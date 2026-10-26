@@ -32,6 +32,7 @@ dev = [
 sentinelflow-import = "sentinelflow.cli.import_events:main"
 sentinelflow-create-user = "sentinelflow.cli.create_user:main"
 sentinelflow-investigate = "sentinelflow.cli.investigate:main"
+sentinelflow-doctor = "sentinelflow.cli.doctor:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

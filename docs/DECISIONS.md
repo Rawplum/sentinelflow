@@ -159,6 +159,7 @@
 - **决策**：默认使用 SQLite 内存库；设置 `TEST_DATABASE_URL` 时使用真实 PostgreSQL；迁移测试使用独立的 `MIGRATION_TEST_DATABASE_URL`。
 - **理由**：本地快速反馈与真实数据库验证兼顾；测试库名称必须包含 `test`，降低误连开发库风险。
 - **影响**：本次使用 `pgserver` 0.1.4 提供的嵌入式 PostgreSQL 16.2 做验证，但它不是项目依赖；正式环境仍推荐 Docker Compose。
+  （2026-10-25 更新：`pgserver` 在 GBK locale 下不可用，已改用免安装二进制包，见 D-049。）
 
 ### D-027：2026-10-19 确定性闭环验收结论（认证实现前，已由 D-029 补充）
 
@@ -337,6 +338,17 @@
 - **影响**：分块传输（无 `Content-Length`）不受该中间件保护，必须由反向代理补一层——已写入
   `SECURITY.md` 的残余风险。
 
+### D-049：PostgreSQL 验证用免安装二进制包，不用 pgserver、不装系统服务
+
+- **决策**：用 EDB 的 `postgresql-16.15-1-windows-x64-binaries.zip` 解压到 `%TEMP%`，
+  `initdb --locale=C` 初始化，`postgres -p 55432` 直接起进程，验证完删目录。
+- **理由**：`pgserver` 在本机 GBK 系统 locale 下 `initdb` 失败（历史阻塞点）；
+  用 winget 装 PostgreSQL 会注册系统服务、占 5432、写注册表，为一次性验证改动系统不划算。
+  `--locale=C` 直接绕开 GBK 编码问题，端口 55432 避开任何已有实例。
+- **影响**：验证可复现且零污染；代价是数据目录在 `%TEMP%`，重启机器即失效，
+  所以**每次验证都要重新 initdb**，这也是把完整命令写进 `docs/TESTING.md` 的原因。
+- **结果**：全量 `334 passed`、迁移测试 `1 passed`、`0001`–`0006` 升降级、真机冒烟全通。
+
 ## 2. 已验证的版本组合
 
 > 本节记录 2026-10-19（`0002` 时期）的验证结果，其中的测试数量（112/113）与 head（`0002`）为历史值。
@@ -386,6 +398,7 @@
 兼容性结论：上述组合在当前环境中可安装、可导入、迁移和测试通过。由于 `pyproject.toml` 使用范围约束，未来重新安装可能解析到更新版本；届时应重新运行测试并更新本表。
 
 本地验证额外使用 `pgserver` 0.1.4（嵌入式 PostgreSQL 16.2）。它**不是**项目依赖，也没有写入 `pyproject.toml`；正式环境使用 Docker Compose 或本机 PostgreSQL。
+（2026-10-25 更新：本机 GBK locale 下 `pgserver` 不可用，改用 EDB 免安装二进制包 + `--locale=C`，见 D-049。）
 
 ## 3. 待定事项
 

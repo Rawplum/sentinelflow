@@ -25,58 +25,82 @@ $ .venv\Scripts\python.exe -m pytest -q
 
 > 历史记录：`0002` 时期（2026-10-19）为 `112 passed, 1 skipped`。阶段 A 新增 78 项、阶段 B 新增 27 项、第五天新增 28 项测试，既有 112 项全部继续通过且未修改断言。
 
-### PostgreSQL 16.2（真实数据库）
+### PostgreSQL 16.15（真实数据库，2026-10-25 验证）
 
-使用嵌入式 PostgreSQL 16.2 启动独立测试库，执行真实 Alembic 迁移后运行：
+本机没有 Docker，也没有安装 PostgreSQL。用 EDB 的**免安装二进制包**起一个临时集群：
+数据目录在 `%TEMP%`，不写系统、不注册服务、验证后整目录删除即可。
+
+```bat
+:: 1. 下载并解压（约 318MB）
+curl -sL -o %TEMP%\pg16.zip https://get.enterprisedb.com/postgresql/postgresql-16.15-1-windows-x64-binaries.zip
+:: 解压到 %TEMP%\pgsql16
+
+:: 2. 初始化集群（trust 认证，仅监听 127.0.0.1:55432，不与系统 5432 冲突）
+%TEMP%\pgsql16\pgsql\bin\initdb.exe -D %TEMP%\pgdata16 -U postgres --auth=trust --encoding=UTF8 --locale=C
+%TEMP%\pgsql16\pgsql\bin\postgres.exe -D %TEMP%\pgdata16 -p 55432 -c listen_addresses=127.0.0.1
+
+:: 3. 建库（测试库名必须含 "test"，conftest 会校验）
+%TEMP%\pgsql16\pgsql\bin\createdb.exe -h 127.0.0.1 -p 55432 -U postgres sentinelflow_test
+%TEMP%\pgsql16\pgsql\bin\createdb.exe -h 127.0.0.1 -p 55432 -U postgres sentinelflow
+
+:: 4. 跑测试
+set TEST_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:55432/sentinelflow_test
+set MIGRATION_TEST_DATABASE_URL=%TEST_DATABASE_URL%
+pytest -q
+```
+
+结果：
 
 ```text
-== alembic upgrade head ==
-INFO  [alembic.runtime.migration] Running upgrade  -> 0001, create core security event and alert tables
-INFO  [alembic.runtime.migration] Running upgrade 0001 -> 0002, add users and audit logs
+== pytest -q（全量，TEST_DATABASE_URL 指向 PostgreSQL）==
+334 passed, 1 skipped          # 跳过的是未设置 MIGRATION_TEST_DATABASE_URL 的场景
 
+== pytest tests/test_migrations.py（设置 MIGRATION_TEST_DATABASE_URL）==
+1 passed
+
+== alembic upgrade head ==
+0001 → 0002 → 0003 → 0004 → 0005 → 0006（6 级全部执行）
 == alembic check ==
 No new upgrade operations detected.
-
 == alembic current ==
-0002 (head)
-
-== pytest with PostgreSQL ==
-113 passed
+0006 (head)
+== alembic downgrade base ==
+6 级回退，仅剩 alembic_version
+== 再次 upgrade head ==
+6 级，public schema 共 13 张表（12 张业务表 + alembic_version）
 ```
 
-同时验证了：
+**本次验证的真正价值**：`0006` 修改 `ck_investigations_status` 与 `uq_investigation_rounds_*` 时，
+在 PostgreSQL 上走的是 `drop_constraint` / `create_unique_constraint` 分支，
+而不是 SQLite 的 `batch_alter_table` 整表重建。这条分支此前从未被执行过。
 
-- `security_events`、`alerts`、`alert_events`、`users`、`audit_logs`、`alembic_version` 表存在。
-- `ck_security_events_outcome`、`ck_security_events_raw_message_length` 存在。
-- `ck_alerts_severity`、`ck_alerts_status`、`uq_alerts_dedup_key` 存在。
-- `ck_users_role`、`ck_users_username_lower`、`ck_users_username_length`、`uq_users_username` 存在。
-- `ck_audit_logs_outcome` 和审计索引存在；`audit_logs.actor_user_id` 外键指向 `users`。
-- 迁移测试执行 `upgrade head` 后 `downgrade base` 成功。
-- 样例数据导入：29 行 → 24 导入、1 重复跳过、4 无效。
-- 检测：22 个认证失败事件 → 2 个告警，每个 5 条证据。
-- 报告中所有证据 ID 均存在于 `security_events`，时间线有序。
+同时确认（PostgreSQL 16.15）：
 
-### 真实 Uvicorn + PostgreSQL（认证/RBAC/审计）
+- `investigations` 的 `pending` 状态被 CHECK 接受，旧枚举被拒绝。
+- 时间列为 `timestamp with time zone`，`as_utc()` 对 aware/naive 两种返回都成立。
+- 队列的条件 `UPDATE ... WHERE <claimable>` + `rowcount==1` 在 PG 上按预期工作（见下方真机冒烟）。
+- 唯一约束 `uq_investigation_rounds_attempt_index` 生效，重试不会撞 `(id, round_index)`。
 
-使用真实 Uvicorn 进程和 PostgreSQL 数据库执行 HTTP 流程：
+### 真实 Uvicorn + PostgreSQL 全链路冒烟（2026-10-25）
+
+真实 `uvicorn` 进程 + PostgreSQL 16.15 + 队列 worker 线程 + 本地 stub provider（**不是真实模型**）：
 
 ```text
-GET  /health                          -> 200
-GET  /api/v1/events (无 token)        -> 401
-POST /api/v1/auth/login (admin)       -> 200
-POST /api/v1/auth/login (analyst)     -> 200
-POST /api/v1/events/import (admin)    -> 201，received=5, imported=5
-POST /api/v1/detections/run (admin)   -> 200，alerts_created=1
-GET  /api/v1/alerts (admin)           -> 200，total=1
-GET  /api/v1/alerts/{id}/report       -> 200，evidence=5，ID 全部匹配
-GET  /api/v1/audit-logs (admin)       -> 200，关键动作存在
-GET  /api/v1/events (analyst)         -> 200
-GET  /api/v1/alerts (analyst)         -> 200
-GET  /api/v1/alerts/{id}/report       -> 200
-POST /api/v1/events/import (analyst)  -> 403
-POST /api/v1/detections/run (analyst) -> 403
-GET  /api/v1/audit-logs (analyst)     -> 403
+1  login             200
+2  import            201 imported=5
+3  detection         200 alerts=1
+4  alert detail      200 open evidence=5
+5  evidence page     200 items=2/5
+6  POST investigate  202 pending
+7  immediate GET     200 status=pending        <- 后台执行，请求不等待模型
+8  duplicate POST    409 already running
+9  final             200 succeeded rounds=2 tools=1 attempts=1 ms=14
+10 report            200 agent draft cited=2/5
+11 audit             200 run+complete: True
+12 logout            204 | reuse: 401
 ```
+
+第 7、8 步在 TestClient 下观察不到（它会在返回前等待后台任务），只能在真实服务器上验证。
 
 ### 真实 Uvicorn + 真实数据库冒烟（2026-10-23 验收）
 
@@ -152,8 +176,8 @@ pytest -q tests/test_health.py tests/test_rule_engine.py \
 pytest -q
 -> 112 passed, 1 skipped
 
-PostgreSQL 16.2 + pytest -q
--> 113 passed
+PostgreSQL 16.15 + pytest -q
+-> 334 passed, 1 skipped
 ```
 
 OpenAPI 实际安全要求：
@@ -271,7 +295,8 @@ set "MIGRATION_TEST_DATABASE_URL=postgresql+psycopg://user:password@127.0.0.1:54
 
 - 由 Alembic 迁移创建结构；测试的 `create_all` 只作为幂等兜底。
 - 建议通过 Docker Compose 或本机 PostgreSQL 提供。
-- 本次验证使用嵌入式 PostgreSQL 16.2（`pgserver`），但它是**本地验证工具，不是项目依赖**，也没有写入 `pyproject.toml`。正式环境仍推荐 Docker Compose。
+- 本次验证使用 **PostgreSQL 16.15 免安装二进制包**起的临时集群（数据目录在 `%TEMP%`，端口 55432），
+  不写系统、不注册服务、不写入 `pyproject.toml`。正式环境仍推荐 Docker Compose（`compose.yaml` 固定 `postgres:16-alpine`）。
 
 ## 6. 测试数据原则
 
@@ -431,12 +456,14 @@ login → import(5) → detection(1 alert) → alert detail → evidence page
 
 ## 7. 未覆盖 / 未验证
 
-- **PostgreSQL 上 `0003`/`0004` 迁移与全量测试未重跑**（本机无 PostgreSQL / Docker；`pgserver` 在本机 GBK 系统 locale 下 `initdb` 失败）。这是当前最大的验证缺口。
-  - 已用真实 SQLite 库补做：`alembic upgrade head`（0001→0004）、`alembic check`（无差异）、逐级 `downgrade 0003→0002→0001→base` 全部成功。这验证了迁移脚本可执行、可回退，但**不能替代 PostgreSQL 的 DDL/约束行为验证**。
+- ~~**PostgreSQL 迁移与全量测试未验证**~~（2026-10-25 已解决）：改用 EDB 免安装二进制包 +
+  `--locale=C` 起临时集群，`0001`–`0006` 升降级、全量 pytest（334 passed）、迁移测试（1 passed）、
+  真实 Uvicorn 全链路冒烟全部通过。见上文「PostgreSQL 16.15（真实数据库）」小节。
+  仍未覆盖的是**多副本并发**与**长时间运行**，不是数据库方言本身。
 - **Agent 未使用真实模型验证**：`tests/test_model_client_http.py` 用本地 stub provider 覆盖了
   HTTP 协议路径（请求体、鉴权头、tool_calls/findings 解析、5xx、超时、Key 不外泄、端到端调查），
   但这只证明**客户端能正确收发 OpenAI 兼容协议**；真实模型的输出质量、延迟、token 成本仍未测量。
-- **没有固定评测集与准确率指标**：现有测试验证安全边界，不验证研判质量。
+- **研判质量仍未测量**：`benchmark/` 的装置已就绪，但模型基线未用真实模型运行（无凭据）。
 - Docker Compose 启动未验证（当前机器无 Docker）。
 - README 的 Linux/macOS 命令未在本机执行（当前为 Windows）。
 - 没有 CI、覆盖率门槛。

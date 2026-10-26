@@ -145,11 +145,13 @@ data/sample_events.jsonl
 
 ## 下一步
 
-### 1. 补做 PostgreSQL 验证（最高优先）
+### 1. ~~补做 PostgreSQL 验证~~（2026-10-25 已完成）
 
-本机无 PostgreSQL、无 Docker，`pgserver` 在本机 GBK 系统 locale 下 `initdb` 失败，
-导致 PostgreSQL 上的迁移未验证。已在真实 SQLite 库验证 `upgrade head` / `check` / 逐级 `downgrade`，
-但 PostgreSQL 的约束与类型行为仍需在可用环境执行：
+已用 EDB 免安装二进制包 + `--locale=C` 起临时 PostgreSQL 16.15 集群完成验证：
+全量 `334 passed`、迁移测试 `1 passed`、`0001`–`0006` 升降级、`alembic check` 无差异、
+真实 Uvicorn + worker 全链路冒烟通过。复现命令见 `docs/TESTING.md`。
+
+以下命令仍然有效，供在标准环境（Docker / 本机 PG）复跑时使用：
 
 ```bat
 set "MIGRATION_TEST_DATABASE_URL=postgresql+psycopg://user:pass@127.0.0.1:5432/sentinelflow_migration_test"

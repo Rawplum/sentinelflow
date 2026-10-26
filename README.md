@@ -18,7 +18,7 @@ SentinelFlow 是一个 AI 辅助的安全事件研判与响应平台。当前版
 | 环境配置 | 已实现，测试通过 | `pydantic-settings`，读取 `.env` |
 | `SecurityEvent` / `Alert` / `alert_events` 模型 | 已实现，测试通过 | SQLAlchemy 2.x，含 CHECK、唯一约束、外键 |
 | `User` / `AuditLog` 模型 | 已实现，测试通过 | 用户、角色、密码哈希、审计表 |
-| Alembic 迁移 `0001` + `0002` | 已实现，PostgreSQL 16.2 验证通过 | 可升级、可降级 |
+| Alembic 迁移 `0001`–`0006` | 已实现，PostgreSQL 16.15 验证通过 | 可升级、可降级 |
 | JSONL 导入 CLI | 已实现，SQLite 与 PostgreSQL 验证通过 | 逐行报告无效数据，重复事件跳过 |
 | 本地用户创建 CLI | 已实现，测试通过 | 交互式密码输入，无默认密码 |
 | JWT 登录 `/api/v1/auth/login` | 已实现，测试通过 | Argon2id + 有过期时间的 Bearer token |
@@ -52,7 +52,7 @@ SentinelFlow 是一个 AI 辅助的安全事件研判与响应平台。当前版
 | Docker Compose PostgreSQL | 已提供，未运行验证 | 当前机器未安装 Docker |
 | Git 仓库 | 已初始化（未提交） | 2026-10-23 `git init`，尚无 commit |
 
-状态含义：**已实现，测试通过** 表示有代码且有实际自动化测试证据；**验证通过** 表示在真实 PostgreSQL 16.2 上执行过；**未实现** 表示只有文档计划。
+状态含义：**已实现，测试通过** 表示有代码且有实际自动化测试证据；**验证通过** 表示在真实 PostgreSQL 16.15 上执行过；**未实现** 表示只有文档计划。
 
 ## 技术栈
 
@@ -453,13 +453,14 @@ set "MIGRATION_TEST_DATABASE_URL=postgresql+psycopg://user:password@127.0.0.1:54
 pytest -q
 ```
 
-实际结果：`113 passed`（包含迁移升级/降级测试）。该数字来自 `0002` 时期的历史验证；`0003` 迁移的 PostgreSQL 验证尚未在本机重跑。
+实际结果（PostgreSQL 16.15，2026-10-25）：`334 passed`；`tests/test_migrations.py` 单独跑 `1 passed`。
 
 说明：
 
 - `TEST_DATABASE_URL` 必须指向名称包含 `test` 的专用数据库。
 - `MIGRATION_TEST_DATABASE_URL` 必须指向独立的空测试数据库；迁移测试会删除并重建其中的核心表。
-- 当前机器没有 Docker，PostgreSQL 验证使用嵌入式 PostgreSQL 16.2 完成；该工具不是项目运行时依赖。
+- 当前机器没有 Docker，PostgreSQL 验证用 **EDB 免安装二进制包**起临时集群（`%TEMP%`，端口 55432）；
+  它不写系统、不注册服务，也不是项目依赖。完整命令见 `docs/TESTING.md`。
 - 测试不会连接开发数据库。
 
 ### 前端测试
@@ -472,9 +473,9 @@ npm test
 npm run build
 ```
 
-实际结果：TypeScript 通过、oxlint 0 warnings、**26 tests passed**、生产构建通过。
+实际结果：TypeScript 通过、oxlint 0 warnings、**48 passed / 12 files**、生产构建通过。
 
-### 最新验证记录（2026-10-24，第五天）
+### 最新验证记录（2026-10-25，第十一天）
 
 | 检查 | 结果 |
 | --- | --- |
@@ -485,12 +486,14 @@ npm run build
 | 前端 `typecheck` / `lint` | 通过 / 0 warnings |
 | `alembic heads` | `0006 (head)` |
 | `alembic check` | **通过**：在真实 SQLite 库上 `upgrade head` 后 `No new upgrade operations detected` |
-| 迁移升降级 | 真实 SQLite：`0001→0004` 升级、`0004→0003→0002→0001→base` 逐级降级均成功，仅剩 `alembic_version` |
-| PostgreSQL pytest | **未重跑**（本机无 PostgreSQL / Docker，`pgserver` 在 GBK locale 下 initdb 失败） |
+| 迁移升降级（SQLite） | `0001→0006` 升级、`0006→…→base` 逐级降级均成功，仅剩 `alembic_version` |
+| PostgreSQL pytest | **`334 passed`**（PostgreSQL 16.15 真实集群） |
+| PostgreSQL 迁移 | `0001→0006` 升级、`alembic check` 无差异、`downgrade base` 后仅剩 `alembic_version`、再升级 13 张表 |
+| PostgreSQL 真机冒烟 | 真实 Uvicorn + worker：202 pending → 409 防重 → succeeded → 报告 → 审计 → 登出 401 |
 | `git diff --check` | **通过**（exit 0；先修复 14 个前端文件末尾多余空行） |
 | 真实 Uvicorn + 迁移过的 SQLite 库 | 全链路 HTTP 冒烟通过：登录/401/导入/检测/告警详情/状态 409/审计/报告版本/定稿 409/superseded/证据分页/事件过滤/限流 429/登出撤销 401/analyst 403/Agent 未配置 503 |
 | 前端生产构建 | 通过 |
-| Git | 已 `git init`（分支 `main`），**未 stage、未 commit** |
+| Git | 分支 `main`，工作区干净（每次改动单独提交） |
 
 历史记录（`0002` 时期，认证/RBAC/审计 + 前端）保留在 `docs/TESTING.md`。
 

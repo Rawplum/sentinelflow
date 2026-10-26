@@ -1,10 +1,10 @@
 # 交接说明
 
-最后更新：2026-10-24
+最后更新：2026-10-25
 
-**一句话状态**：功能闭环已完成并在 SQLite 上验证（后端 334 passed，前端 48 passed），
-但 **PostgreSQL 与真实模型均未验证**，因此仍属工程原型，只建议本地使用。
-详细状态与接手步骤见下一节。
+**一句话状态**：功能闭环已完成，并在 **SQLite 与 PostgreSQL 16.15 上全量验证**
+（后端 334 passed、前端 48 passed、迁移升降级全通），但 **真实模型仍未调用**，
+因此"AI 到底判得准不准"依然没有证据。详细状态与接手步骤见下一节。
 
 ## 接手须知（先读这一段，约 1 分钟）
 
@@ -13,27 +13,29 @@
 ```bat
 git log --oneline           :: 看最近几次提交，判断上次做到哪
 git status --short          :: 有输出 = 有未提交改动，先看清楚再动手
-pytest -q                   :: 期望 334 passed, 1 skipped
+pytest -q                   :: 期望 334 passed, 1 skipped（SQLite）
 python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 拒答
 ```
 
 **不要用文档里的数字代替这三条命令。** 文档会过期，命令不会。
 基线提交本身不必逐个文件读——它的价值是"差异的参照点"，不是"要读的内容"。
 
-### 当前状态（2026-10-24）
+### 当前状态（2026-10-25）
 
 | 项 | 值 |
 | --- | --- |
 | 迁移 head | `0006` |
-| 后端测试 | 327 passed / 1 skipped（跳过的是需 PostgreSQL 的迁移测试） |
+| 后端测试（SQLite） | 334 passed / 1 skipped |
+| 后端测试（PostgreSQL 16.15） | 334 passed；迁移测试单独跑 1 passed |
 | 前端测试 | 48 passed / 12 files |
-| 已验证环境 | SQLite（内存 + 真实文件） |
-| **未验证** | PostgreSQL 运行行为、真实模型调用、真实浏览器 |
+| 已验证环境 | SQLite（内存 + 真实文件）、PostgreSQL 16.15 |
+| **未验证** | 真实模型调用、真实浏览器 |
 
 ### 三件必须先知道的事
 
-1. **PostgreSQL 只验到语法层**。`alembic upgrade head --sql` 生成的 PG DDL 正确，
-   但从未在真实 PG 上执行。`0006` 的 `drop_constraint` 分支是主要风险点。
+1. **PostgreSQL 已经真实验证过**（2026-10-25）。`0001`–`0006` 全量升降级、`alembic check` 无差异、
+   全量 pytest 通过、真实 Uvicorn + 队列 worker 全链路冒烟通过。
+   `0006` 的 `drop_constraint` 分支已确认可执行。复现命令见 `docs/TESTING.md`。
 2. **模型基线没有任何真实数字**。`benchmark/` 的模型部分用自检替身，报告标 `mode: self_test`。
    把它当作模型性能是错的。
 3. **确定性基线是唯一有真实数字的方案**：5/5 完成、3/5 期望匹配、0/2 证据不足拒答。
@@ -41,14 +43,16 @@ python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 �
 ### 读什么，不读什么
 
 读：`docs/BENCHMARK.md`（为什么做、怎么读结果）、`docs/SECURITY.md`（边界与残余风险）、
-本文件 §5.5（最近一次改动的完整上下文）。
+本文件 §5.7（最近一次改动的完整上下文）。
 
-**不必通读** §5.1–§5.4：它们是按天追加的历史，结论已被后续覆盖。要追溯用 `git log -p`。
+**不必通读** §5.1–§5.6：它们是按天追加的历史，结论已被后续覆盖。要追溯用 `git log -p`。
 
 ### 下一步只有一件事
 
-在真实 PostgreSQL 上跑 `pytest -q` 与迁移升降级，达到 `334 passed, 0 skipped`。
-在这之前的任何"生产可用"表述都不成立。
+**用真实模型跑一次基准**：`python -m benchmark.runner --baseline all --model real`
+（需要 `LLM_PROVIDER` / `LLM_MODEL` / `LLM_API_BASE` / `LLM_API_KEY`）。
+重点看 `expectation_match_rate` 与 `refusal_appropriateness` 能否明显超过确定性基线的 60% / 0%。
+如果超不过，该停下来重新想产品，而不是继续加功能。
 
 ## 1. 项目目标与技术栈
 
@@ -164,8 +168,8 @@ AGENT_TOOL_TIMEOUT_SECONDS 默认 5
 | 前端依赖 | `frontend/node_modules/` 已安装 |
 | Git | 已安装 2.55.0.windows.3（§2 为真实状态） |
 | Docker / Compose | 未安装 |
-| 本机 PostgreSQL | 未安装 |
-| 验证用 PostgreSQL | 临时嵌入式 PostgreSQL 16.2（`pgserver`，不是项目依赖） |
+| 本机 PostgreSQL | 未安装（未注册服务） |
+| 验证用 PostgreSQL | PostgreSQL 16.15 免安装二进制包，临时集群在 `%TEMP%`，端口 55432（不是项目依赖） |
 
 ## 4. 目录结构与主要模块
 
@@ -237,8 +241,8 @@ G:\软件开发\
 | 功能 | 测试证据 |
 | --- | --- |
 | `/health`、配置、应用导入、OpenAPI | pytest + 真实 Uvicorn |
-| 12 张表（含 `investigation_rounds`） | SQLite |
-| Alembic `0001`–`0006` 升级/降级 | 真实 SQLite（PostgreSQL 待补） |
+| 12 张表（含 `investigation_rounds`） | SQLite + PostgreSQL |
+| Alembic `0001`–`0006` 升级/降级 | 真实 SQLite **与 PostgreSQL 16.15** |
 | `alembic check` 无模型/迁移差异 | `No new upgrade operations detected` |
 | 本地 CLI 创建 admin/analyst | Argon2id、无密码参数、无密码输出 |
 | 登录、JWT 过期/签名/issuer/audience/type 校验 | pytest |
@@ -258,6 +262,7 @@ G:\软件开发\
 实际测试结果（累计，最新数字见 5.1 第五天验收结果）：
 
 - 全量 SQLite：`334 passed, 1 skipped`（迁移测试因未设置 PostgreSQL URL 跳过）。
+- 全量 PostgreSQL 16.15：`334 passed`；`tests/test_migrations.py` 单独跑 `1 passed`。
 - 既有 112 项测试全部继续通过，**未修改任何既有断言**。
 - 阶段 A 新增 78 项：告警详情、状态机、报告版本、证据分页、事件过滤、登录限流与令牌撤销。
 - 阶段 B 新增 27 项：Agent 白名单、参数校验、权限、作用域、预算、引用校验、日志脱敏、提示注入、模型失败/超时、非法结构化输出、空查询结果、失败审计。
@@ -266,7 +271,7 @@ G:\软件开发\
 - **迁移已用真实数据库验证**：在 SQLite 库上 `upgrade head`（0001→0004）、`alembic check` 无差异、逐级 `downgrade 0003→0002→0001→base` 成功（base 后仅剩 `alembic_version`）。
 - **真实 Uvicorn + 迁移过的 SQLite 库冒烟通过**：登录、401、导入、检测、告警详情、状态 409、审计、报告 v1/v2、定稿 409、superseded、证据分页、事件过滤、限流 429、登出撤销 401、analyst 403、Agent 未配置 503。明细见 `docs/TESTING.md`。
 - `git diff --check` → **exit 0**（修复 14 个前端文件末尾空行后）。
-- **未执行**：PostgreSQL 迁移与全量测试、真实模型调用。
+- **未执行**：真实模型调用、真实浏览器联调（仅 jsdom）。
 
 ### 已实现但尚未通过实际测试
 
@@ -824,6 +829,72 @@ pytest -q tests/test_benchmark.py
 
 后端 **334 passed / 1 skipped**，前端 **48 passed / 12 files**，typecheck / lint / build 通过。
 
+## 5.7 第十一天（2026-10-25）：PostgreSQL 真实验证
+
+这是悬了十天的最大的验证缺口，今天补上了。
+
+### 为什么之前做不成，这次怎么做成的
+
+之前用 `pgserver`（嵌入式 PostgreSQL 16.2），在 GBK 系统 locale 下 `initdb` 直接失败。
+本机也没有 Docker、没有安装 PostgreSQL。
+
+这次改用 **EDB 免安装二进制包**：
+
+```text
+curl -sL -o %TEMP%\pg16.zip https://get.enterprisedb.com/postgresql/postgresql-16.15-1-windows-x64-binaries.zip
+initdb -D %TEMP%\pgdata16 -U postgres --auth=trust --encoding=UTF8 --locale=C
+postgres -D %TEMP%\pgdata16 -p 55432 -c listen_addresses=127.0.0.1
+```
+
+关键就是 `--locale=C`：绕开 GBK。整个集群在 `%TEMP%`，不写系统、不注册服务、
+不占 5432，验证完删目录即可。
+
+### 结果（全部真实执行）
+
+| 检查 | 结果 |
+| --- | --- |
+| 全量 pytest（`TEST_DATABASE_URL` 指向 PG） | **334 passed** |
+| `tests/test_migrations.py`（`MIGRATION_TEST_DATABASE_URL`） | **1 passed**（此前一直 skip） |
+| `alembic upgrade head` | 6 级全执行（0001→0006） |
+| `alembic check` | `No new upgrade operations detected.` |
+| `alembic current` | `0006 (head)` |
+| `alembic downgrade base` | 6 级回退，仅剩 `alembic_version` |
+| 再次 `upgrade head` | 6 级，public schema 13 张表 |
+| 真实 Uvicorn + worker 全链路冒烟 | 12 步全通（见下） |
+
+**最重要的确认**：`0006` 修改 `ck_investigations_status` 与 `uq_investigation_rounds_*` 时，
+在 PG 上走的是 `drop_constraint` / `create_unique_constraint` 分支，
+不是 SQLite 的 `batch_alter_table` 整表重建。**这条分支此前从未被执行过。**
+
+### PostgreSQL 上的真机冒烟
+
+```text
+1  login             200
+2  import            201 imported=5
+3  detection         200 alerts=1
+4  alert detail      200 open evidence=5
+5  evidence page     200 items=2/5
+6  POST investigate  202 pending
+7  immediate GET     200 status=pending        <- 后台执行，请求不等模型
+8  duplicate POST    409 already running
+9  final             200 succeeded rounds=2 tools=1 attempts=1 ms=14
+10 report            200 agent draft cited=2/5
+11 audit             200 run+complete: True
+12 logout            204 | reuse: 401
+```
+
+队列的条件 `UPDATE ... WHERE <claimable>` + `rowcount==1`、租约、`pending` 状态 CHECK、
+`timestamptz` 的 aware/naive 转换，都在 PG 上按预期工作。
+
+### 没有改任何代码
+
+这一轮**零代码改动**——十天里所有针对 PG 的谨慎（`Uuid` 类型、`as_utc()` 归一化、
+不用 `SKIP LOCKED`、不用 SQLite 专有语法）都兑现了。改的只有文档。
+
+### 复现
+
+见 `docs/TESTING.md` 的「PostgreSQL 16.15（真实数据库）」小节，含完整命令。
+
 ## 6. 环境准备、数据库、用户、启动和测试
 
 ### 安装
@@ -944,7 +1015,9 @@ npm run build
 
 ### 阻塞
 
-1. **PostgreSQL 验证缺口**：本机无 PostgreSQL 也无 Docker，`pgserver` 在 GBK 系统 locale 下 `initdb` 失败。`0003`/`0004` 已在真实 SQLite 库验证升级/降级，但 PostgreSQL 的 DDL、CHECK/唯一约束和类型行为仍未验证。
+1. ~~**PostgreSQL 验证缺口**~~（2026-10-25 已解决）：改用 EDB 免安装二进制包 + `--locale=C` 起临时集群，
+   绕开了 `pgserver` 在 GBK locale 下 `initdb` 失败的问题。`0001`–`0006` 升降级、全量测试、
+   真实 Uvicorn 全链路均已在 PostgreSQL 16.15 上通过。
 2. **Git 无提交**：仓库已初始化，但没有任何 commit，改动无法用 `git diff` 追溯。
 3. **生产加固未完成**：TLS、MFA、刷新令牌、密钥轮换、审计保留均未实现。
 

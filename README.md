@@ -598,13 +598,13 @@ python scripts/check.py
 | 格式 | `ruff format --check src tests benchmark perf evaluation migrations` | 110 个文件通过 |
 | 静态检查 | `ruff check src tests benchmark perf evaluation migrations` | 0 问题 |
 | 类型 | `mypy`（配置在 `pyproject.toml`，覆盖 `src/` + `tests/`） | 89 个文件 0 错误 |
-| 后端测试 | `pytest -q` | `358 passed, 3 skipped` |
+| 后端测试 | `pytest -q` | `362 passed, 3 skipped` |
 | 前端 lint | `cd frontend && npm run lint` | 0 warning |
 | 前端测试 | `cd frontend && npm test` | 48 passed / 12 files |
 | 前端构建 | `cd frontend && npm run build` | 通过 |
 | 迁移一致性 | `alembic check` | 需要数据库 |
 
-**跳过的是什么**：`358 passed, 3 skipped` 里的 3 项——1 项迁移测试（需要真实 PostgreSQL）
+**跳过的是什么**：`362 passed, 3 skipped` 里的 3 项——1 项迁移测试（需要真实 PostgreSQL）
 和 2 项并发回归测试（SQLite 忽略 `FOR UPDATE`，既复现不了竞态也证明不了修复）。
 
 ### 用真实 PostgreSQL 跑
@@ -658,7 +658,7 @@ npm run build
 
 | 检查 | 结果 |
 | --- | --- |
-| `pytest -q`（SQLite） | `358 passed, 3 skipped` |
+| `pytest -q`（SQLite） | `362 passed, 3 skipped` |
 | 新增测试 | 236 项（告警详情/状态机/报告版本/证据分页/事件过滤/限流撤销/Agent/可观测性/评测/防重与凭证卫生/模型客户端 HTTP） |
 | 既有测试 | 原 112 项全部继续通过，未修改任何既有断言 |
 | 前端 `npm test` | `48 passed / 12 files` |

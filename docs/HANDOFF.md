@@ -16,7 +16,7 @@
 git log --oneline           :: 看最近几次提交，判断上次做到哪
 git status --short          :: 有输出 = 有未提交改动，先看清楚再动手
 python scripts/check.py     :: 全部检查，期望 7 步全 PASS
-pytest -q                   :: 期望 358 passed, 3 skipped（SQLite）
+pytest -q                   :: 期望 362 passed, 3 skipped（SQLite）
 python -m benchmark.runner  :: 确定性基线，期望 13/18 期望匹配、0/3 拒答
 ```
 
@@ -29,7 +29,7 @@ python -m benchmark.runner  :: 确定性基线，期望 13/18 期望匹配、0/3
 | --- | --- |
 | 迁移 head | `0006` |
 | 静态检查 | ruff 0 问题；mypy 89 个文件 0 错误；格式 110 个文件通过 |
-| 后端测试（SQLite） | 358 passed / 3 skipped |
+| 后端测试（SQLite） | 362 passed / 3 skipped |
 | 后端测试（PostgreSQL 16.15） | 360 passed / 1 skipped（含 2 条并发回归） |
 | 前端测试 | 48 passed / 12 files |
 | 已验证环境 | SQLite、PostgreSQL 16.15、生产构建 + 同源代理 |

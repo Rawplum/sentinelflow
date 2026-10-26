@@ -50,7 +50,7 @@ SentinelFlow 是一个 AI 辅助的安全事件研判与响应平台。当前版
 | AI Agent 调查 | 已实现（Mock 模型验证） | 单 Agent、4 个只读白名单工具、5 轮/8 次预算、引用校验、产出草稿 |
 | Agent 真实模型调用 | 已实现，已真实测量 | DeepSeek-V4.1-Flash；见 `docs/BENCHMARK.md`。样本仅 6 个可评分用例 |
 | `/ready` 就绪检查 | 未实现 | 当前只有 `/health` |
-| Docker Compose PostgreSQL | 已提供，未运行验证 | 当前机器未安装 Docker |
+| Docker Compose 整套 | 已提供，静态校验 17 项通过 | 本机无 Docker daemon，容器未实际启动；命令级等价验证已完成，见下文 |
 | Git 仓库 | 已初始化（未提交） | 2026-10-23 `git init`，尚无 commit |
 
 状态含义：**已实现，测试通过** 表示有代码且有实际自动化测试证据；**验证通过** 表示在真实 PostgreSQL 16.15 上执行过；**未实现** 表示只有文档计划。
@@ -82,15 +82,183 @@ SentinelFlow 是一个 AI 辅助的安全事件研判与响应平台。当前版
 
 ## 环境要求
 
-- Windows 10/11、Linux 或 macOS。
-- Python 3.11+。
-- PostgreSQL 16，推荐使用 Docker Compose；也可使用本机 PostgreSQL。
-- Git（推荐，当前开发机未安装）。
-- Docker + Docker Compose（可选，当前开发机未安装）。
+两种启动方式，按你的环境选：
 
-`GET /health` 在数据库未配置时仍可用；业务接口需要 `DATABASE_URL`。
+| 方式 | 需要什么 | 适合 |
+| --- | --- | --- |
+| **A. Docker Compose** | Docker Engine + Compose v2 | 想一条命令起整套（推荐） |
+| B. 本机 Python + 数据库 | Python 3.11+、PostgreSQL 16（或只把数据库放进 Docker） | 改代码、调试后端 |
 
-## 快速开始（Windows）
+`GET /health` 在数据库未配置时仍可用；`GET /health/ready` 与所有业务接口需要可用的 `DATABASE_URL`。
+
+## 快速开始（Docker Compose，推荐）
+
+一条命令起整套：PostgreSQL、迁移、API、控制台。
+
+**前置**：Docker Engine 或 Docker Desktop，带 Compose v2（`docker compose version` 能跑）。
+
+### 1. 准备 `.env`
+
+```bat
+copy .env.example .env
+```
+
+编辑 `.env`，**只需要改两个值**：
+
+| 变量 | 怎么填 |
+| --- | --- |
+| `JWT_SECRET` | 运行下面这行，把输出粘进去（至少 32 字符） |
+| `POSTGRES_PASSWORD` | 自己定一个强密码；`@`、`:`、`/` 等字符要 URL 编码（`@` → `%40`） |
+
+```bat
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+`DATABASE_URL` 在 compose 里**会被自动改写成指向 `db:5432`**，不需要你改；它只在本机直接跑 API 时生效。
+`.env` 已在 `.gitignore` 里，只有 `.env.example` 会进 Git。
+
+### 2. 启动
+
+```bat
+docker compose up -d --build
+```
+
+首次会构建两个镜像（API、控制台），约 2–4 分钟。启动顺序由 compose 强制，不靠 sleep：
+
+```text
+db        ──健康检查(pg_isready)──▶
+migrate   ──alembic upgrade head，跑完退出(0)──▶
+api       ──健康检查(/health/ready，含数据库往返)──▶
+web       ──健康检查(/healthz)
+```
+
+确认状态：
+
+```bat
+docker compose ps
+```
+
+期望看到 `db`、`api`、`web` 为 `healthy`，`migrate` 为 `exited (0)`。`migrate` 显示 exited 是**正常的**——它是一次性任务。
+
+### 3. 创建第一个管理员
+
+数据库是空的，没有任何用户。密码通过交互式输入，不接受命令行参数：
+
+```bat
+docker compose exec api sentinelflow-create-user --username admin --role admin
+```
+
+### 4. （可选）导入样例数据并生成告警
+
+```bat
+docker compose exec api python -m sentinelflow.cli.import_events data/sample_events.jsonl
+```
+
+然后用管理员登录，在界面上点「运行检测」，或用 API：
+
+```bat
+curl -X POST http://127.0.0.1:8000/api/v1/detections/run -H "Authorization: Bearer <token>"
+```
+
+> 为什么用 CLI 而不是 `POST /events/import`：样例文件里**故意留了 4 行非法数据**，
+> CLI 会逐行跳过并报告，而 API 的导入是**全有或全无**，会整批 422 拒绝。
+
+### 5. 打开控制台
+
+**http://127.0.0.1:8080**
+
+### 服务与端口
+
+| 服务 | 容器端口 | 宿主机 | 作用 | 需要对外？ |
+| --- | --- | --- | --- | --- |
+| `web` | 8080 | `127.0.0.1:${WEB_PORT:-8080}` | nginx 托管前端 + 同源代理 `/api` | 只开这个 |
+| `api` | 8000 | `127.0.0.1:${API_PORT:-8000}` | FastAPI | 调试用，可不映射 |
+| `db` | 5432 | `127.0.0.1:${POSTGRES_PORT:-5432}` | PostgreSQL 16 | 调试用 |
+| `migrate` | — | 无 | 一次性迁移任务 | 否 |
+
+全部绑定 `127.0.0.1`，**不会暴露到局域网或公网**。这套配置没有 TLS，在补上反向代理和证书之前不要对外发布。
+
+前端和 API 是**同源**的：控制台调用相对路径 `/api/v1`，由 nginx 转发到 `api:8000`。
+所以不需要配 CORS，也不需要把 API 地址编进前端构建产物。
+
+### 健康检查
+
+| 端点 | 含义 | 谁在用 |
+| --- | --- | --- |
+| `/health` | 存活：进程还在。**不碰数据库** | 容器 HEALTHCHECK |
+| `/health/ready` | 就绪：存活 + 一次数据库往返。数据库不可用返回 **503** | compose 里 `api` 的健康检查、负载均衡 |
+| `web:8080/healthz` | nginx 自身存活 | `web` 的健康检查 |
+
+两个 `/health*` 都是**公开**的（探针没法带 token），且**不会回显连接串**——失败时只返回
+`{"status":"degraded","database":"unavailable"}`。
+
+### 常用命令
+
+```bat
+docker compose logs -f api          :: 跟踪 API 日志
+docker compose logs migrate         :: 迁移失败时看这里
+docker compose restart api          :: 只重启 API
+docker compose stop                 :: 停止，保留容器与数据
+docker compose down                 :: 删除容器，**保留**数据卷
+docker compose down -v              :: 删除容器**和数据库数据**（不可恢复）
+```
+
+### 数据库迁移
+
+迁移由 `migrate` 容器在每次 `up` 时自动执行。手动操作：
+
+```bat
+docker compose run --rm migrate alembic current      :: 当前版本
+docker compose run --rm migrate alembic upgrade head :: 升级到最新
+docker compose run --rm migrate alembic check        :: 模型与迁移是否一致
+docker compose run --rm migrate alembic downgrade -1 :: 回退一级
+```
+
+`alembic check` 输出 `No new upgrade operations detected.` 才说明模型和迁移没有漂移。
+
+### 数据持久化
+
+数据库数据在命名卷 `sentinelflow_pgdata` 里：
+
+```bat
+docker volume ls | findstr sentinelflow
+```
+
+- `docker compose down` → 卷保留，数据还在。
+- `docker compose down -v` → **卷删除，数据清空**。
+- 想清空重来但保留镜像：`docker compose down -v && docker compose up -d`，然后重新建用户、重新导入。
+
+### 故障排查
+
+| 现象 | 原因 | 处理 |
+| --- | --- | --- |
+| `docker compose up` 直接报 `set POSTGRES_PASSWORD in .env` | `.env` 缺失或值还是 `CHANGE_ME` | 填好 `.env`；这是**故意的**失败，避免用默认密码启动 |
+| `migrate` 反复重启 | 不会发生——它设了 `restart: "no"` | 看 `docker compose logs migrate` 里的真实错误 |
+| `api` 一直 `unhealthy` | 数据库连不上或密码不匹配 | `curl 127.0.0.1:8000/health/ready`；核对 `POSTGRES_PASSWORD` 是否含未编码的特殊字符 |
+| `web` 起来了但页面 502 | `api` 还没 healthy | `web` 依赖 `api` 的 healthcheck，等几十秒；仍不行看 `docker compose ps` |
+| 端口被占用 | 本机已有 5432/8000/8080 | 在 `.env` 改 `POSTGRES_PORT` / `API_PORT` / `WEB_PORT` |
+| 登录报 401 但密码没错 | 没创建用户 | 执行第 3 步的 `sentinelflow-create-user` |
+
+### 关于"验证到什么程度"
+
+`compose.yaml` 在本机**无法实际运行**：这台机器没有 Docker daemon，且 WSL 被安全策略阻断。
+所以本仓库做的是：
+
+1. **静态校验**（`tests/test_deploy_config.py`，17 项）：服务齐全、每个长驻服务有健康检查、
+   启动顺序是 `service_completed_successfully` 而不是 `service_started`、数据在命名卷、
+   所有端口绑 `127.0.0.1`、没有明文密钥、`DATABASE_URL` 指向 `db:5432`、
+   镜像以非 root 运行、`.dockerignore` 排除 `.env`。
+2. **命令级等价验证**（详见 `docs/TESTING.md`）：用一个**全新的空 PostgreSQL 集群**，
+   按容器里的同一串命令跑：`alembic upgrade head` → `uvicorn --host 0.0.0.0` →
+   `/health` 与 `/health/ready` → 导入样例 → 检测 → 登录 → 调查 → 报告 → 审计 → 登出；
+   再重启数据库进程确认数据仍在。
+3. **生产构建 + 同源代理**：`npm run build` 后用按 `nginx.conf` 实现的静态服务 + `/api` 反代，
+   跑完整浏览器 E2E（16 项）。
+
+**未验证的是容器本身**：镜像构建、容器网络、健康检查的真实触发。第一次在有 Docker 的机器上运行时，
+请按上面的步骤走一遍，并把 `docker compose ps` 的输出贴进 issue/交接文档。
+
+## 快速开始（本机 Python，开发用）
 
 ```bat
 cd /d G:\软件开发
@@ -456,7 +624,7 @@ curl "http://127.0.0.1:8000/api/v1/audit-logs?limit=50&offset=0" \
 pytest -q
 ```
 
-实际结果：`344 passed, 1 skipped`。跳过的是需要真实 PostgreSQL 的迁移测试。
+实际结果：`365 passed, 1 skipped`。跳过的是需要真实 PostgreSQL 的迁移测试。
 
 使用真实 PostgreSQL：
 
@@ -492,8 +660,8 @@ npm run build
 
 | 检查 | 结果 |
 | --- | --- |
-| `pytest -q`（SQLite） | `344 passed, 1 skipped` |
-| 新增测试 | 222 项（告警详情/状态机/报告版本/证据分页/事件过滤/限流撤销/Agent/可观测性/评测/防重与凭证卫生/模型客户端 HTTP） |
+| `pytest -q`（SQLite） | `365 passed, 1 skipped` |
+| 新增测试 | 243 项（告警详情/状态机/报告版本/证据分页/事件过滤/限流撤销/Agent/可观测性/评测/防重与凭证卫生/模型客户端 HTTP） |
 | 既有测试 | 原 112 项全部继续通过，未修改任何既有断言 |
 | 前端 `npm test` | `48 passed / 12 files` |
 | 前端 `typecheck` / `lint` | 通过 / 0 warnings |
@@ -576,7 +744,11 @@ alembic downgrade 0001
 ├── migrations/                     # Alembic 环境与版本
 ├── data/sample_events.jsonl        # 合成数据（含异常行）
 ├── docs/                           # 项目文档
-├── compose.yaml
+├── compose.yaml                    # db + migrate + api + web
+├── Dockerfile                      # API 镜像（非 root）
+├── frontend/Dockerfile             # 控制台镜像（多阶段 + 非 root nginx）
+├── frontend/nginx.conf             # 同源托管 SPA 并反代 /api
+├── e2e/browser.mjs                 # 真实浏览器端到端
 ├── alembic.ini
 ├── pyproject.toml
 ├── .env.example

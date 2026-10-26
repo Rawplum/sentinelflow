@@ -13,7 +13,7 @@
 - `limit` 范围：1–200；`offset` ≥ 0。
 - 报告内嵌证据上限：100 条（`evidence_limit` 1–100）。
 - 证据分页上限：200 条。
-- 认证：除 `/health` 和 `/api/v1/auth/login` 外，所有接口都要求 `Authorization: Bearer <jwt>`。
+- 认证：除 `/health`、`/health/ready` 和 `/api/v1/auth/login` 外，所有接口都要求 `Authorization: Bearer <jwt>`。
 - 当前没有公开注册接口；用户只能通过本地 CLI 创建。
 - API 文档：`/docs`、`/redoc`、`/openapi.json`。
 
@@ -39,7 +39,7 @@
 
 ### 3.1 GET /health
 
-公开，存活检查，不访问数据库。
+公开，**存活**检查，不访问数据库。数据库故障时它仍然返回 200——否则数据库抖动会导致健康容器被重启。
 
 响应 `200 OK`：
 
@@ -51,6 +51,37 @@
   "environment": "development"
 }
 ```
+
+### 3.1.1 GET /health/ready
+
+公开（探针无法携带 token），**就绪**检查：存活 + 一次数据库往返。
+
+响应 `200 OK`：
+
+```json
+{
+  "status": "ready",
+  "service": "SentinelFlow",
+  "version": "0.1.0",
+  "database": "ok",
+  "detail": null
+}
+```
+
+数据库不可达时 `503 Service Unavailable`：
+
+```json
+{
+  "status": "degraded",
+  "service": "SentinelFlow",
+  "version": "0.1.0",
+  "database": "unavailable",
+  "detail": "database is not reachable"
+}
+```
+
+`detail` 是**固定文案**，不回显驱动错误——psycopg 的报错里常带完整 DSN（含密码）。
+compose 里 `api` 的健康检查打这个端点，`web` 等它 healthy 才启动。
 
 ### 3.2 POST /api/v1/auth/login
 

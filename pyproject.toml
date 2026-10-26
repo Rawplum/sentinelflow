@@ -24,6 +24,8 @@ dependencies = [
 dev = [
     "pytest>=8.2,<9.0",
     "httpx2>=2.14,<3.0",
+    # Used by tests/test_deploy_config.py to inspect compose.yaml without Docker.
+    "PyYAML>=6.0,<7.0",
 ]
 
 [project.scripts]

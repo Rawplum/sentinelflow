@@ -2,9 +2,10 @@
 
 最后更新：2026-10-25
 
-**一句话状态**：功能闭环完成，SQLite 与 PostgreSQL 全量验证（后端 344 passed、前端 48 passed、
-真实浏览器 16 项），真实模型已测量（DeepSeek-V4.1-Flash）：**Agent 41/44、单次模型 37/44、规则 13/18**。
-结论是"有模型远好于没模型，但 Agent 与单次模型在准确率上分不出高下，代价是 10.7 倍 token"。
+**一句话状态**：功能闭环完成，SQLite 与 PostgreSQL 全量验证（后端 365 passed、前端 48 passed、
+真实浏览器 16 项），真实模型已测量（Agent 41/44、单次模型 37/44、规则 13/18）。
+部署侧已补齐 `Dockerfile` + `frontend/Dockerfile` + 四服务 `compose.yaml`，
+但**容器本身未在本机跑过**（无 daemon、WSL 被策略阻断）——做了静态校验 17 项 + 命令级等价验证。
 标注仍是人工的，这是当前最大缺口。详细状态见下一节。
 
 ## 接手须知（先读这一段，约 1 分钟）
@@ -14,7 +15,7 @@
 ```bat
 git log --oneline           :: 看最近几次提交，判断上次做到哪
 git status --short          :: 有输出 = 有未提交改动，先看清楚再动手
-pytest -q                   :: 期望 344 passed, 1 skipped（SQLite）
+pytest -q                   :: 期望 365 passed, 1 skipped（SQLite）
 python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 拒答
 ```
 
@@ -26,11 +27,11 @@ python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 �
 | 项 | 值 |
 | --- | --- |
 | 迁移 head | `0006` |
-| 后端测试（SQLite） | 344 passed / 1 skipped |
+| 后端测试（SQLite） | 365 passed / 1 skipped |
 | 后端测试（PostgreSQL 16.15） | 341 passed（该轮之后新增 3 项）；迁移测试单独跑 1 passed |
 | 前端测试 | 48 passed / 12 files |
-| 已验证环境 | SQLite（内存 + 真实文件）、PostgreSQL 16.15 |
-| **未验证** | 真实模型调用、真实浏览器 |
+| 已验证环境 | SQLite、PostgreSQL 16.15、生产构建 + 同源代理 |
+| **未验证** | 容器构建与运行（本机无 Docker）、多副本 worker 并发 |
 
 ### 三件必须先知道的事
 
@@ -263,7 +264,7 @@ G:\软件开发\
 
 实际测试结果（累计，最新数字见 5.1 第五天验收结果）：
 
-- 全量 SQLite：`344 passed, 1 skipped`（迁移测试因未设置 PostgreSQL URL 跳过）。
+- 全量 SQLite：`365 passed, 1 skipped`（迁移测试因未设置 PostgreSQL URL 跳过）。
 - 全量 PostgreSQL 16.15：`341 passed`；`tests/test_migrations.py` 单独跑 `1 passed`。
 - 既有 112 项测试全部继续通过，**未修改任何既有断言**。
 - 阶段 A 新增 78 项：告警详情、状态机、报告版本、证据分页、事件过滤、登录限流与令牌撤销。
@@ -538,7 +539,7 @@ docs/DECISIONS.md、docs/PLAN.md、docs/TESTING.md、docs/HANDOFF.md
 
 | 检查 | 结果 |
 | --- | --- |
-| 后端全量 | `344 passed, 1 skipped` |
+| 后端全量 | `365 passed, 1 skipped` |
 | Agent / 可观测性 / 评测 / 认证 RBAC 分组 | `97 passed` |
 | 评测集 | `13/13 passed`；`--repeat 3` 判定一致 |
 | 前端 | `33 passed / 9 files`；typecheck 通过；lint 0 warnings；build 通过 |
@@ -1047,6 +1048,66 @@ Agent 比规则引擎准（89% vs 60%），差距来自两件规则引擎做不�
 浏览器 node e2e/browser.mjs            → 16 项通过
 前端  npm test                         → 48 passed
 ```
+
+## 5.11 第十五天（2026-10-25）：可复现的本地部署
+
+### 之前的状态
+
+`compose.yaml` 只有一个 `db` 服务，没有 Dockerfile，没有前端容器，
+README 让读者在宿主机装 Python 再手动 `docker compose up -d db`。这不叫"一条命令起整套"。
+
+### 现在
+
+```text
+compose.yaml
+  db        postgres:16-alpine + 命名卷 + pg_isready 健康检查
+  migrate   alembic upgrade head，跑完退出(0)，restart: "no"
+  api       uvicorn --host 0.0.0.0，健康检查打 /health/ready
+  web       nginx-unprivileged 托管 SPA，同源反代 /api，健康检查打 /healthz
+```
+
+新增文件：`Dockerfile`、`.dockerignore`、`frontend/Dockerfile`、`frontend/.dockerignore`、
+`frontend/nginx.conf`。
+
+关键设计：
+
+- **一个 API 镜像，两个角色**：`migrate` 和 `api` 用同一镜像、同一份 environment 锚点，
+  保证"建表的代码"就是"跑服务的代码"。
+- **启动顺序靠 condition，不靠 sleep**：`api` 等 `migrate` 的
+  `service_completed_successfully`，`web` 等 `api` 的 `service_healthy`。
+- **`migrate` 不重启**：迁移失败时 `restart: "no"`，错误留在日志里而不是进入崩溃循环。
+- **两个探针分工**：`/health` 不碰数据库（避免数据库抖动导致容器被重启），
+  新增的 `/health/ready` 做一次数据库往返、失败返回 503，compose 用它 gate `web`。
+- **同源部署**：控制台调用相对路径 `/api/v1`，nginx 转发到 `api:8000`。
+  不需要 CORS，也不需要把 API 地址编进构建产物。
+- **非 root**：API 镜像 `useradd` 固定 uid 10001；前端用 `nginx-unprivileged`（uid 101，端口 8080）。
+- **秘密只走环境变量**：`JWT_SECRET` / `POSTGRES_PASSWORD` 用 `${...:?}`，
+  缺值时 compose **拒绝启动**，而不是回落到默认值。`.dockerignore` 排除 `.env`，
+  Dockerfile 里没有 `COPY . .`。
+
+### 本机跑不了 Docker，怎么验证的
+
+本机没有 Docker daemon，`wsl.exe` 被安全策略阻断（`PROGRAM BLOCKED BY SECURITY POLICY`）。
+所以分三层：
+
+1. **静态校验**：`tests/test_deploy_config.py`（17 项）。并且**做了变异测试**——
+   把端口改成 `8080:8080`、删 healthcheck、依赖改 `service_started`、写死 JWT_SECRET、
+   DSN 改成 `127.0.0.1`，对应断言全部失败。这些检查有牙齿。
+2. **命令级等价验证**：新建空 PostgreSQL 集群（模拟空卷），按容器里的同一串命令跑
+   `alembic upgrade head` → `uvicorn --host 0.0.0.0`，然后走完整业务链路
+   （就绪 → 登录 → 导入 → 检测 → 告警 → 调查 → 报告 → 审计 → 登出/撤销）。
+   **再杀掉数据库进程重启**，确认 2 个告警、24 条事件、24 条审计仍在。
+3. **生产构建 + 同源代理**：`npm run build` 后用按 `nginx.conf` 写的静态服务 + `/api` 反代，
+   验证 `/healthz`、SPA 回退、`/api` 反代，并跑完整浏览器 E2E（16 项全通过）。
+
+**仍然未验证**：`docker build`、容器网络/DNS、healthcheck 的真实触发、非 root 用户的运行权限。
+这些只能由 compose 运行时证明，已在 README 里写明，并要求第一次在有 Docker 的机器上跑时回填 `docker compose ps`。
+
+### 顺手发现的一个文档陷阱
+
+样例文件 `data/sample_events.jsonl` 里**故意有 4 行非法数据**，而 `POST /events/import`
+是**全有或全无**（整批 422），所以"导入样例"必须用 CLI（逐行跳过）。
+README 里现在明确写了这一点，避免新人第一次就撞墙。
 
 ## 6. 环境准备、数据库、用户、启动和测试
 

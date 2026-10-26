@@ -1,0 +1,34 @@
+# Keep the build context small and keep secrets out of it.
+# Anything listed here is never sent to the Docker daemon, so a stray .env or a
+# local database can never end up inside an image layer.
+
+.git
+.gitignore
+.workbuddy-ai
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Local secrets and data
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite3
+*.log
+data/*.db
+
+# Not needed to build the API image
+frontend
+e2e
+docs
+tests
+benchmark
+evaluation
+node_modules

@@ -467,7 +467,12 @@ def run_investigation(
     request_id: str | None = None,
     commit: bool = False,
 ) -> Investigation | None:
-    """Create and execute in one call. Used by the CLI, evals and unit tests."""
+    """Create, claim and execute in one call. Used by the CLI and benchmarks.
+
+    The queue worker claims tasks itself; this synchronous path claims the row
+    it just created, so it behaves like a single-worker run without waiting for
+    a poll cycle.
+    """
     investigation = create_investigation(
         session,
         alert_id,
@@ -477,6 +482,17 @@ def run_investigation(
     )
     if investigation is None:
         return None
+
+    settings = get_settings()
+    now = utcnow()
+    investigation.status = "running"
+    investigation.attempt_count += 1
+    investigation.started_at = investigation.started_at or now
+    investigation.lease_expires_at = now + timedelta(
+        seconds=settings.agent_lease_seconds
+    )
+    investigation.next_attempt_at = None
+    session.flush()
 
     return execute_investigation(
         session,

@@ -18,7 +18,7 @@
 ```text
 $ .venv\Scripts\python.exe -m pytest -q
 ... [100%]
-318 passed, 1 skipped
+327 passed, 1 skipped
 ```
 
 跳过的是 `tests/test_migrations.py`，原因是没有设置 `MIGRATION_TEST_DATABASE_URL`。
@@ -187,6 +187,7 @@ OpenAPI 实际安全要求：
 | `tests/test_agent.py` | 模型未配置 503、Mock 全流程、工具白名单/参数/权限/作用域、预算耗尽、引用编造拒绝、工具日志脱敏、提示注入 |
 | `tests/test_investigation_observability.py` | 轮次落库与顺序、模型失败轮次、预算轮次、`duration_ms`/`request_id`、追踪不含日志原文、中断回收、CLI 未配置时失败关闭、并发防重 409、过期行不阻塞、重复执行幂等、追踪不含凭证 |
 | `tests/test_eval_suite.py` | 13 个评测用例参数化 + 场景覆盖断言 + 指标未测量时不得伪造 |
+| `tests/test_benchmark.py` | 基准数据集覆盖 9 类场景、确定性基线 100% 完成、**规则系统无法拒答**（0/2）、Agent 引用有效、self-test 不声称成本、判定可重复、同步调查入口真的执行（回归） |
 | `tests/test_security_hardening.py` | 10 类攻击面的负向测试：提示注入不扩权、analyst 越权、参数跨告警、9 个非白名单工具、15 种畸形参数、无 SQL/命令/网络逃逸口、越界引用、凭据不外泄、体积/队列/时长上限、无限调用与重试（46 项） |
 | `tests/test_investigation_queue.py` | 队列状态流转：新建为 `pending` 且请求不调模型、领取加租约、二次领取为空、租约过期可重领、次数耗尽转 `failed(interrupted)`、可恢复错误退避重试、重试上限、确定性失败不重试、工具超时不触发重试、`pending` 期间重复提交 409、**跨进程重启后任务仍可查询与领取** |
 | `tests/test_e2e_chain.py` | 完整业务链路：登录 → 导入 → 检测 → 告警详情 → 证据 → Agent 调查（stub provider）→ 报告 → 定稿 → 审计 → 登出；刷新后按 ID 重建状态；防重不误锁 |

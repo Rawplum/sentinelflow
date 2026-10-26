@@ -24,6 +24,7 @@ htmlcov/
 
 # Evaluation artifacts
 evaluation/last_report.json
+benchmark/last_report.json
 
 # Local agent workspace state (not project source)
 .workbuddy-ai/

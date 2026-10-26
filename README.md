@@ -42,6 +42,7 @@ SentinelFlow 是一个 AI 辅助的安全事件研判与响应平台。当前版
 | 前端自动化测试 | 已实现，33 passed | Vitest + React Testing Library + MSW |
 | Agent 评测集 | 已实现，13/13 通过 | `evaluation/`，10 项指标，Mock 模型 |
 | 安全加固与负向测试 | 已实现，46 项 | 见 `docs/SECURITY.md`：威胁模型、12 类控制、残余风险 |
+| Agent 对比基准 | 已实现，确定性基线有真实结果 | 见 `docs/BENCHMARK.md`：规则 / 单次模型 / Agent 三方对比 |
 | 调查过程追踪 | 已实现，测试通过 | `investigation_rounds` + 轮次/工具耗时 + `duration_ms` + `request_id` |
 | 前端调查闭环 | 已实现，测试通过 | 报告页内启动调查、轮询状态、查看步骤/工具/报告、失败重试 |
 | AI Agent 调查 | 已实现（Mock 模型验证） | 单 Agent、4 个只读白名单工具、5 轮/8 次预算、引用校验、产出草稿 |
@@ -226,6 +227,19 @@ curl -X POST http://127.0.0.1:8000/api/v1/alerts/<alert-uuid>/investigations \
 
 > **未验证**：本项目未使用真实模型凭据运行过 Agent。所有自动化测试都使用脚本化的 Mock 模型客户端，
 > 在 FastAPI 依赖边界替换，不会发起真实模型调用。
+
+## Agent 对比基准
+
+回答"Agent 有没有比规则系统更有用"。三条基线跑同一批虚构案例：
+
+```bat
+python -m benchmark.runner                              :: 确定性规则基线（无需模型）
+python -m benchmark.runner --baseline all --model self-test   :: 验证管道，不是测量
+python -m benchmark.runner --baseline all --model real        :: 真实模型，需要 LLM_* 配置
+```
+
+确定性基线已实测：完成率 5/5、引用有效率 5/5、**期望匹配 3/5**、**证据不足拒答 0/2**。
+模型基线在无凭据时**未运行**，报告中标注 `not measured`。详见 `docs/BENCHMARK.md`。
 
 ## 端到端演示
 
@@ -428,7 +442,7 @@ curl "http://127.0.0.1:8000/api/v1/audit-logs?limit=50&offset=0" \
 pytest -q
 ```
 
-实际结果：`318 passed, 1 skipped`。跳过的是需要真实 PostgreSQL 的迁移测试。
+实际结果：`327 passed, 1 skipped`。跳过的是需要真实 PostgreSQL 的迁移测试。
 
 使用真实 PostgreSQL：
 
@@ -463,8 +477,8 @@ npm run build
 
 | 检查 | 结果 |
 | --- | --- |
-| `pytest -q`（SQLite） | `318 passed, 1 skipped` |
-| 新增测试 | 206 项（告警详情/状态机/报告版本/证据分页/事件过滤/限流撤销/Agent/可观测性/评测/防重与凭证卫生/模型客户端 HTTP） |
+| `pytest -q`（SQLite） | `327 passed, 1 skipped` |
+| 新增测试 | 215 项（告警详情/状态机/报告版本/证据分页/事件过滤/限流撤销/Agent/可观测性/评测/防重与凭证卫生/模型客户端 HTTP） |
 | 既有测试 | 原 112 项全部继续通过，未修改任何既有断言 |
 | 前端 `npm test` | `40 passed / 11 files` |
 | 前端 `typecheck` / `lint` | 通过 / 0 warnings |

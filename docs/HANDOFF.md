@@ -2,7 +2,7 @@
 
 最后更新：2026-10-23
 
-状态：阶段 A（报告持久化/版本、证据上限、告警详情与状态流转、登录限流与令牌撤销、事件过滤、文档与前端修复）、阶段 B（受控单 Agent 调查）与第五天（Agent 评测集、调查过程追踪、前端调查闭环）均已完成，SQLite 测试 318 passed / 1 skipped，前端 40 passed。**PostgreSQL 上的 `0003`–`0006` 迁移验证待补做；Agent 未做真实模型调用验证。** 仍只建议本地使用。
+状态：阶段 A（报告持久化/版本、证据上限、告警详情与状态流转、登录限流与令牌撤销、事件过滤、文档与前端修复）、阶段 B（受控单 Agent 调查）与第五天（Agent 评测集、调查过程追踪、前端调查闭环）均已完成，SQLite 测试 327 passed / 1 skipped，前端 40 passed。**PostgreSQL 上的 `0003`–`0006` 迁移验证待补做；Agent 未做真实模型调用验证。** 仍只建议本地使用。
 
 ## 1. 项目目标与技术栈
 
@@ -211,7 +211,7 @@ G:\软件开发\
 
 实际测试结果（累计，最新数字见 5.1 第五天验收结果）：
 
-- 全量 SQLite：`318 passed, 1 skipped`（迁移测试因未设置 PostgreSQL URL 跳过）。
+- 全量 SQLite：`327 passed, 1 skipped`（迁移测试因未设置 PostgreSQL URL 跳过）。
 - 既有 112 项测试全部继续通过，**未修改任何既有断言**。
 - 阶段 A 新增 78 项：告警详情、状态机、报告版本、证据分页、事件过滤、登录限流与令牌撤销。
 - 阶段 B 新增 27 项：Agent 白名单、参数校验、权限、作用域、预算、引用校验、日志脱敏、提示注入、模型失败/超时、非法结构化输出、空查询结果、失败审计。
@@ -485,7 +485,7 @@ docs/DECISIONS.md、docs/PLAN.md、docs/TESTING.md、docs/HANDOFF.md
 
 | 检查 | 结果 |
 | --- | --- |
-| 后端全量 | `318 passed, 1 skipped` |
+| 后端全量 | `327 passed, 1 skipped` |
 | Agent / 可观测性 / 评测 / 认证 RBAC 分组 | `97 passed` |
 | 评测集 | `13/13 passed`；`--repeat 3` 判定一致 |
 | 前端 | `33 passed / 9 files`；typecheck 通过；lint 0 warnings；build 通过 |
@@ -682,6 +682,61 @@ POST → pending → worker 条件 UPDATE 领取（attempt_count+1, lease_expire
 
 提示词不是控制手段。即使模型被日志完全说服，它能做的仍然只有 4 个只读工具，
 参数必须通过 Schema、权限与作用域检查。这一点由测试而非文档保证。
+
+
+## 5.5 第九天（2026-10-24）：Git 基线与 Agent 对比基准
+
+### 先做了三件早就该做的事
+
+1. **建立 Git 基线**：`ca0838d`（202 个文件，工作区干净）。此前 8 天零提交，改错无法回滚。
+   撤销方式：`git reset --soft HEAD~1`。
+2. **PG 离线 DDL 校验**：`alembic upgrade head --sql`（314 行）确认 PG 分支语法正确——
+   无 SQLite 残留（无 PRAGMA / batch 重建），类型正确（UUID / TIMESTAMP WITH TIME ZONE），
+   `0006` 走的是 `ALTER TABLE ... DROP CONSTRAINT` 而不是 batch。
+   **这不能替代真实 PG 运行，但把"从未执行过"降到"语法已验证"。**
+3. 真实模型冒烟：无凭据，**未做**。
+
+### 基准（新增 `benchmark/`）
+
+三条基线跑同一批 9 个虚构案例：确定性规则 / 单次模型（无工具）/ Agent（受控工具）。
+
+**确定性基线真实结果**（`python -m benchmark.runner`）：
+
+| 指标 | 结果 |
+| --- | --- |
+| 任务完成率 | 5/5 = 100% |
+| 期望匹配率 | **3/5 = 60%** |
+| 证据引用有效率 | 5/5 = 100% |
+| 结构校验通过率 | 5/5 = 100% |
+| 证据不足拒答率 | **0/2 = 0%** |
+
+未命中：`insufficient_single_event`（只有 1 条证据仍下结论）、`contradictory_timestamps`
+（成功早于失败仍按窗口计数）。这是规则系统的固有边界，不是 bug。
+
+模型基线在无凭据时未运行，报告中标注 `mode: self_test` / `not measured`，不得引用为模型性能。
+
+### 基准立刻抓到的一个真 bug
+
+`run_investigation`（同步入口，CLI 与基准都用它）在第七天引入队列后**已经失效**：
+它只创建 `pending` 行就返回，`execute_investigation` 因为状态不是 `running` 直接跳过。
+表现为调查永远停在 pending、`rounds_used=0`、CLI 静默不干活。
+已有测试因为断言太弱（只比较前后状态相同）没有发现。
+
+已修复：同步路径自己领取刚创建的行（status=running、attempt_count+1、写租约）。
+新增回归测试 `test_synchronous_investigation_actually_runs` 断言 `status=succeeded` 且 `rounds_used >= 1`。
+
+**教训**：队列化改造后，"同步便捷入口"是最容易被漏掉的调用方。
+
+### 命令
+
+```bat
+python -m benchmark.runner                                   :: 确定性基线
+python -m benchmark.runner --baseline all --model self-test  :: 管道自检，非测量
+python -m benchmark.runner --baseline all --model real       :: 需要 LLM_* 凭据
+pytest -q tests/test_benchmark.py
+```
+
+详见 `docs/BENCHMARK.md`。
 
 ## 6. 环境准备、数据库、用户、启动和测试
 

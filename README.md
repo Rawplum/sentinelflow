@@ -43,6 +43,7 @@ SentinelFlow 是一个 AI 辅助的安全事件研判与响应平台。当前版
 | Agent 评测集 | 已实现，13/13 通过 | `evaluation/`，10 项指标，Mock 模型 |
 | 安全加固与负向测试 | 已实现，46 项 | 见 `docs/SECURITY.md`：威胁模型、12 类控制、残余风险 |
 | Agent 对比基准 | 已实现，三方均有真实结果 | 25 个用例；见 `docs/BENCHMARK.md` |
+| 性能与并发实测 | 已实现，修复 4 个问题 | `perf/`；96k 事件下的 P50/P95 见 `docs/PERFORMANCE.md` |
 | 真实浏览器 E2E | 已实现，16 项通过 | `e2e/browser.mjs`（真实 Chromium + 真实后端） |
 | 调查过程追踪 | 已实现，测试通过 | `investigation_rounds` + 轮次/工具耗时 + `duration_ms` + `request_id` |
 | 前端调查闭环 | 已实现，测试通过 | 告警详情页启动调查、轮询状态、查看步骤/工具/报告、失败重试 |
@@ -567,7 +568,8 @@ curl "http://127.0.0.1:8000/api/v1/audit-logs?limit=50&offset=0" \
 pytest -q
 ```
 
-实际结果：`358 passed, 1 skipped`。跳过的是需要真实 PostgreSQL 的迁移测试。
+实际结果：`358 passed, 3 skipped`。跳过的是需要真实 PostgreSQL 的迁移测试（1 项）
+和两条并发回归测试（2 项，SQLite 无法复现竞态）。
 
 使用真实 PostgreSQL：
 
@@ -603,7 +605,7 @@ npm run build
 
 | 检查 | 结果 |
 | --- | --- |
-| `pytest -q`（SQLite） | `358 passed, 1 skipped` |
+| `pytest -q`（SQLite） | `358 passed, 3 skipped` |
 | 新增测试 | 236 项（告警详情/状态机/报告版本/证据分页/事件过滤/限流撤销/Agent/可观测性/评测/防重与凭证卫生/模型客户端 HTTP） |
 | 既有测试 | 原 112 项全部继续通过，未修改任何既有断言 |
 | 前端 `npm test` | `48 passed / 12 files` |
@@ -688,6 +690,7 @@ alembic downgrade 0001
 ├── data/sample_events.jsonl        # 合成数据（含异常行）
 ├── docs/                           # 项目文档
 ├── e2e/browser.mjs                 # 真实浏览器端到端
+├── perf/                           # 性能与并发实测（合成数据）
 ├── alembic.ini
 ├── pyproject.toml
 ├── .env.example

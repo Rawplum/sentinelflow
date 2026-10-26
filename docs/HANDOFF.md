@@ -27,8 +27,8 @@ python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 �
 | 项 | 值 |
 | --- | --- |
 | 迁移 head | `0006` |
-| 后端测试（SQLite） | 358 passed / 1 skipped |
-| 后端测试（PostgreSQL 16.15） | 341 passed（该轮之后新增 3 项）；迁移测试单独跑 1 passed |
+| 后端测试（SQLite） | 358 passed / 3 skipped |
+| 后端测试（PostgreSQL 16.15） | 360 passed / 1 skipped（含 2 条并发回归） |
 | 前端测试 | 48 passed / 12 files |
 | 已验证环境 | SQLite、PostgreSQL 16.15、生产构建 + 同源代理 |
 | **未验证** | 干净机器上装 PostgreSQL、macOS/Linux 命令、多副本 worker 并发 |
@@ -1116,6 +1116,38 @@ uvicorn → /health/ready 200 ready
 - 干净机器上安装 PostgreSQL 的这一步（本机用免安装二进制包）。
 - macOS / Linux 上的同一套命令。
 - 非交互执行 `sentinelflow-create-user`（它刻意只接受交互式输入）。
+
+## 5.12 第十六天（2026-10-25）：性能与并发实测，四个真问题
+
+全部数字见 **`docs/PERFORMANCE.md`**。这里只记结论和改了什么。
+
+### 方法
+
+`perf/dataset.py` 按固定种子生成合成数据（爆发 + 噪声，有界基数），
+`perf/runner.py` 删库重建 → 播种 → 起**真实 uvicorn 进程** → 按场景计时，
+`perf/concurrency.py` 多线程打同一接口。三档规模：1.7k / 16k / 96k 事件。
+
+### 修掉的四个问题
+
+| 问题 | 证据 | 修法 | 结果 |
+| --- | --- | --- | --- |
+| 检测写入每告警 9 次往返 | 96k 事件创建 6000 告警 **25.6 s**；cProfile 显示扫描只占 2.2 s | 整批放进一个 savepoint，证据关联批量 INSERT；撞 dedup 时回退逐条 | **3.0 s**（8.4×） |
+| 并发改状态历史链断裂 | 8 客户端×6 轮：出现"investigating 之后接 open" | `session.get(..., with_for_update=True)` | 历史恒为从 open 出发的链 |
+| 并发发起调查超发 | 3 告警×6 并发接受了 5 个 | 同样加行锁 | 恰好 3 个，区间不重叠 |
+| 批量导入后查询慢 20 倍 | 96k 刚导入 `offset=20000` P95 **515 ms**，`ANALYZE` 后 **16.7 ms** | runner 显式测量冷/热两态；文档要求导入后 ANALYZE | 冷态变成可观测的指标 |
+
+### 明确没修的（有数字支撑）
+
+关键字搜索全表扫描（96k 时 39 ms，要修得装 `pg_trgm`）、`count(*)` 全表（19 ms）、
+深分页 OFFSET（15 ms）、检测仍全表扫描（2.2 s）。理由写在 PERFORMANCE.md §6。
+
+### 回归测试
+
+`tests/test_concurrency.py` 两项，**仅在 PostgreSQL 下执行**——SQLite 忽略 `FOR UPDATE`，
+既复现不了竞态也证明不了修复。这条限制写在测试的 skip 理由里，不是悄悄跳过。
+
+并发状态的单元测试只能验证不变量，**不能可靠复现竞态**（窗口只有微秒级）；
+真正的复现证据是 `perf/concurrency.py` 修复前的那次运行。这一点在测试 docstring 里写明。
 
 ## 6. 环境准备、数据库、用户、启动和测试
 

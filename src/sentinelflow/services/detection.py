@@ -8,12 +8,12 @@ from collections import defaultdict
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from sentinelflow.core.time import as_utc, utcnow
-from sentinelflow.models.alert import Alert
+from sentinelflow.models.alert import Alert, alert_events
 from sentinelflow.models.security_event import SecurityEvent
 
 RULE_ID = "AUTH-001"
@@ -167,6 +167,89 @@ def _to_detection_event(event: SecurityEvent) -> DetectionEvent:
     )
 
 
+def _alert_row(window: "DetectionWindow") -> Alert:
+    return Alert(
+        id=uuid.uuid4(),
+        rule_id=RULE_ID,
+        rule_version=RULE_VERSION,
+        title=ALERT_TITLE,
+        description=(
+            f"{len(window.events)} failed authentication attempts for user "
+            f"'{window.username}' from {window.source_ip} matched rule "
+            f"{RULE_ID} (at least {THRESHOLD} failures in any "
+            f"{int(WINDOW.total_seconds() // 60)}-minute window)."
+        ),
+        severity=ALERT_SEVERITY,
+        status="open",
+        first_seen_at=window.first_seen,
+        last_seen_at=window.last_seen,
+        event_count=len(window.events),
+        dedup_key=window.dedup_key,
+        created_at=utcnow(),
+    )
+
+
+def _insert_alerts(
+    session: Session,
+    windows: list["DetectionWindow"],
+    orm_by_id: dict[uuid.UUID, SecurityEvent],
+    existing_keys: set[str],
+) -> tuple[list[uuid.UUID], int]:
+    """Insert every new alert in two statements instead of nine per alert.
+
+    The straightforward loop - add one alert, link its evidence, flush - costs a
+    SAVEPOINT, an INSERT, one INSERT per evidence row and a RELEASE per alert.
+    At 6000 alerts that measured 25 seconds, nearly all of it round trips.
+
+    The savepoint existed to survive a concurrent run inserting the same dedup
+    key. So the batch runs inside one savepoint: on collision the batch is
+    rolled back and the per-alert path below redoes it. The rare case keeps the
+    original behaviour, the common case gets one round trip per table.
+    """
+    alerts = [_alert_row(window) for window in windows]
+    links = [
+        {"alert_id": alert.id, "event_id": event.event_id}
+        for alert, window in zip(alerts, windows)
+        for event in window.events
+        if event.event_id in orm_by_id
+    ]
+
+    try:
+        with session.begin_nested():
+            session.add_all(alerts)
+            session.flush()
+            if links:
+                session.execute(insert(alert_events), links)
+        for alert in alerts:
+            existing_keys.add(alert.dedup_key)
+        return [alert.id for alert in alerts], 0
+    except IntegrityError:
+        # A concurrent detection run won the race for at least one dedup key.
+        # Fall back to one alert at a time so the losers are skipped, not lost.
+        for alert in alerts:
+            if alert in session:
+                session.expunge(alert)
+
+    created: list[uuid.UUID] = []
+    skipped = 0
+    for window in windows:
+        alert = _alert_row(window)
+        try:
+            with session.begin_nested():
+                session.add(alert)
+                alert.evidence_events = [
+                    orm_by_id[event.event_id] for event in window.events
+                ]
+                session.flush()
+            created.append(alert.id)
+            existing_keys.add(window.dedup_key)
+        except IntegrityError:
+            if alert in session:
+                session.expunge(alert)
+            skipped += 1
+    return created, skipped
+
+
 def run_detection(
     session: Session, *, commit: bool = True
 ) -> DetectionRunResult:
@@ -204,44 +287,13 @@ def run_detection(
     created_ids: list[uuid.UUID] = []
     skipped_existing = 0
 
-    for window in windows:
-        if window.dedup_key in existing_keys:
-            skipped_existing += 1
-            continue
+    pending = [window for window in windows if window.dedup_key not in existing_keys]
+    skipped_existing += len(windows) - len(pending)
 
-        alert = Alert(
-            rule_id=RULE_ID,
-            rule_version=RULE_VERSION,
-            title=ALERT_TITLE,
-            description=(
-                f"{len(window.events)} failed authentication attempts for user "
-                f"'{window.username}' from {window.source_ip} matched rule "
-                f"{RULE_ID} (at least {THRESHOLD} failures in any "
-                f"{int(WINDOW.total_seconds() // 60)}-minute window)."
-            ),
-            severity=ALERT_SEVERITY,
-            status="open",
-            first_seen_at=window.first_seen,
-            last_seen_at=window.last_seen,
-            event_count=len(window.events),
-            dedup_key=window.dedup_key,
-            created_at=utcnow(),
-        )
+    if pending:
+        created_ids, skipped = _insert_alerts(session, pending, orm_by_id, existing_keys)
+        skipped_existing += skipped
 
-        try:
-            with session.begin_nested():
-                session.add(alert)
-                alert.evidence_events = [
-                    orm_by_id[event.event_id] for event in window.events
-                ]
-                session.flush()
-            created_ids.append(alert.id)
-            existing_keys.add(window.dedup_key)
-        except IntegrityError:
-            # A concurrent detection run inserted the same dedup key.
-            if alert in session:
-                session.expunge(alert)
-            skipped_existing += 1
 
     if commit:
         session.commit()

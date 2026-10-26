@@ -157,7 +157,11 @@ def change_status(
     no-op: the alert is returned with ``changed=False`` and no history row is
     written, which keeps client retries from producing duplicate audit noise.
     """
-    alert = session.get(Alert, alert_id)
+    # Lock the row for the duration of the change. Without it two requests read
+    # the same status, both write, and the history ends up claiming two
+    # different predecessors for the same alert -- measured as a broken chain
+    # under 8 concurrent writers.
+    alert = session.get(Alert, alert_id, with_for_update=True)
     if alert is None:
         return None
 

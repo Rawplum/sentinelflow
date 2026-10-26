@@ -28,6 +28,7 @@ node_modules/
 # Evaluation artifacts
 evaluation/last_report.json
 benchmark/last_report.json
+perf/last_run.json
 
 # Browser E2E screenshots
 e2e/failure.png

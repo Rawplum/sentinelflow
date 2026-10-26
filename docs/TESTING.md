@@ -18,7 +18,7 @@
 ```text
 $ .venv\Scripts\python.exe -m pytest -q
 ... [100%]
-358 passed, 1 skipped
+358 passed, 3 skipped
 ```
 
 跳过的是 `tests/test_migrations.py`，原因是没有设置 `MIGRATION_TEST_DATABASE_URL`。
@@ -53,7 +53,7 @@ pytest -q
 
 ```text
 == pytest -q（全量，TEST_DATABASE_URL 指向 PostgreSQL）==
-358 passed, 1 skipped          # 跳过的是未设置 MIGRATION_TEST_DATABASE_URL 的场景
+358 passed, 3 skipped          # 跳过的是未设置 MIGRATION_TEST_DATABASE_URL 的场景
 
 == pytest tests/test_migrations.py（设置 MIGRATION_TEST_DATABASE_URL）==
 1 passed
@@ -272,7 +272,7 @@ pytest -q
 -> 112 passed, 1 skipped
 
 PostgreSQL 16.15 + pytest -q
--> 358 passed, 1 skipped
+-> 358 passed, 3 skipped
 ```
 
 OpenAPI 实际安全要求：
@@ -307,6 +307,7 @@ OpenAPI 实际安全要求：
 | `tests/test_investigation_observability.py` | 轮次落库与顺序、模型失败轮次、预算轮次、`duration_ms`/`request_id`、追踪不含日志原文、中断回收、CLI 未配置时失败关闭、并发防重 409、过期行不阻塞、重复执行幂等、追踪不含凭证 |
 | `tests/test_eval_suite.py` | 13 个评测用例参数化 + 场景覆盖断言 + 指标未测量时不得伪造 |
 | `tests/test_alert_filters_api.py` | 告警列表按状态/严重性过滤、组合过滤、筛选后 total 与分页一致、非法枚举 422、未认证 401 |
+| `tests/test_concurrency.py` | 并发改状态后历史必须是一条链、末端等于告警状态；同一告警并发发起调查只能有一个成功（**仅在 PostgreSQL 下执行**，SQLite 忽略 `FOR UPDATE`） |
 | `tests/test_doctor.py` | 环境诊断：缺 secret / secret 过短 / 示例值 / 数据库不可达（密码掩码）/ 未迁移 / 多项失败退出码 2（10 项） |
 | `tests/test_report_accuracy.py` | 截断报告与分页报告的窗口必须取自告警而非当前页；4 失败 + 1 成功不得被写成"5 次失败" |
 | `tests/test_benchmark.py` | 基准数据集覆盖 9 类场景、确定性基线 100% 完成、**规则系统无法拒答**（0/2）、Agent 引用有效、self-test 不声称成本、判定可重复、同步调查入口真的执行（回归）、`--probe` 未配置时失败关闭 / 端点可用时通过 / 401 时失败、故障注入用例跳过时必须显式报告、规则基线必须带同义反复 caveat、`must_mention_any` 不得被 limitations 模板命中、`--repeat` 必须报告判定翻转 |

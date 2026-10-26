@@ -213,7 +213,10 @@ def create_investigation(
     The row is written before any model call so a crash still leaves a record,
     and so the client can poll it immediately.
     """
-    alert = session.get(Alert, alert_id)
+    # Lock the alert row before the duplicate check. The check and the insert
+    # have to be atomic: with six simultaneous POSTs for one alert, a plain
+    # read-then-insert let five of them through.
+    alert = session.get(Alert, alert_id, with_for_update=True)
     if alert is None:
         return None
 

@@ -70,7 +70,9 @@ def test_report_evidence_limit_zero_returns_422(admin_client, alert_factory) -> 
     assert response.status_code == 422
 
 
-def test_report_evidence_ids_all_exist(admin_client, alert_factory, session_factory) -> None:
+def test_report_evidence_ids_all_exist(
+    admin_client, alert_factory, session_factory
+) -> None:
     alert_id = alert_factory(evidence_count=150)
 
     body = admin_client.get(f"/api/v1/alerts/{alert_id}/report").json()

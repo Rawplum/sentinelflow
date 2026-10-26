@@ -21,10 +21,12 @@ from __future__ import annotations
 import logging
 import threading
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Callable
+from typing import cast
 
 from sqlalchemy import func, or_, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session, sessionmaker
 
 from sentinelflow.ai.model_client import (
@@ -106,7 +108,9 @@ def claim_next(
                 error_code=None,
             )
         )
-        if result.rowcount == 1:
+        # session.execute(update(...)) returns a CursorResult at runtime;
+        # the stub only promises Result, which has no rowcount.
+        if cast(CursorResult, result).rowcount == 1:
             session.commit()
             return session.get(Investigation, candidate_id)
 
@@ -145,7 +149,8 @@ def reap_expired(
             duration_ms=max(
                 int(
                     (
-                        now - as_utc(investigation.started_at or investigation.created_at)
+                        now
+                        - as_utc(investigation.started_at or investigation.created_at)
                     ).total_seconds()
                     * 1000
                 ),
@@ -197,7 +202,9 @@ def run_worker(
     whatever is ``pending`` or has an expired lease.
     """
     settings = get_settings()
-    interval = poll_seconds if poll_seconds is not None else settings.agent_worker_poll_seconds
+    interval = (
+        poll_seconds if poll_seconds is not None else settings.agent_worker_poll_seconds
+    )
     warned_unconfigured = False
 
     while not stop_event.is_set():
@@ -225,7 +232,7 @@ def run_worker(
         except ModelNotConfiguredError:
             stop_event.wait(interval)
             continue
-        except Exception:  # noqa: BLE001 - the loop must survive a bad task
+        except Exception:
             logger.exception("Investigation worker iteration failed")
             stop_event.wait(interval)
             continue

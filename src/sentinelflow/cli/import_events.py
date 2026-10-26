@@ -101,7 +101,9 @@ def main(argv: list[str] | None = None) -> int:
                 result = import_events(session, batch)
                 received += result.received
                 imported += result.imported
-                skipped_ids.extend(str(event_id) for event_id in result.skipped_event_ids)
+                skipped_ids.extend(
+                    str(event_id) for event_id in result.skipped_event_ids
+                )
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -9,13 +9,12 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
+from pydantic import ValidationError
+from sqlalchemy import select
 
 from sentinelflow.ai.model_client import (
-    AgentFindings,
     ModelClientError,
     ModelTurn,
     ToolCallRequest,
@@ -28,26 +27,28 @@ from sentinelflow.ai.tools import (
     execute_tool,
     tool_definitions,
 )
-from sentinelflow.api.routes.investigations import provide_model_client
 from sentinelflow.core.config import get_settings
-from sentinelflow.core.permissions import Permission, UserRole, has_permission
+from sentinelflow.core.permissions import Permission, UserRole
 from sentinelflow.models.audit_log import AuditLog
-from sentinelflow.models.investigation import Investigation, InvestigationToolCall
+from sentinelflow.models.investigation import InvestigationToolCall
 from sentinelflow.models.investigation_report import InvestigationReport
-from sentinelflow.services.reports import load_alert_evidence
-
-from sqlalchemy import select
-
 from support import (
     FailingClient,
     ScriptedClient,
-    evidence_ids as _evidence_ids,
-    findings as _findings,
     drain_pending,
+)
+from support import (
+    evidence_ids as _evidence_ids,
+)
+from support import (
+    findings as _findings,
+)
+from support import (
     install as _install,
+)
+from support import (
     run_via_api as _run,
 )
-
 
 # --- Configuration behaviour ------------------------------------------------
 
@@ -134,9 +135,7 @@ def test_successful_investigation_creates_draft_report(
         assert report.evidence_truncated is True  # 3 cited of 5 total
         cited_in_report = {item["event_id"] for item in report.content["evidence"]}
         assert cited_in_report == {str(item) for item in cited}
-        assert any(
-            "untrusted input" in item for item in report.content["limitations"]
-        )
+        assert any("untrusted input" in item for item in report.content["limitations"])
 
 
 def test_investigation_records_tool_calls_without_raw_messages(
@@ -211,9 +210,7 @@ def test_investigation_is_readable_by_analyst(
     alert_id = alert_factory()
     cited = _evidence_ids(session_factory, alert_id)[:1]
     _install(app, ScriptedClient([ModelTurn(findings=_findings(cited))]))
-    created = admin_client.post(
-        f"/api/v1/alerts/{alert_id}/investigations"
-    ).json()
+    created = admin_client.post(f"/api/v1/alerts/{alert_id}/investigations").json()
 
     response = analyst_client.get(f"/api/v1/investigations/{created['id']}")
 
@@ -366,9 +363,7 @@ def test_invalid_tool_arguments_are_rejected(
     assert body["tool_calls"][0]["error"].startswith("Invalid arguments")
 
 
-def test_analyst_cannot_run_investigation(
-    app, analyst_client, alert_factory
-) -> None:
+def test_analyst_cannot_run_investigation(app, analyst_client, alert_factory) -> None:
     alert_id = alert_factory()
     _install(app, ScriptedClient([ModelTurn(findings=_findings([uuid.uuid4()]))]))
 
@@ -409,7 +404,9 @@ def test_every_tool_requires_a_read_permission() -> None:
         assert spec.required_permission in read_permissions
 
 
-def test_tool_denied_without_permission(session_factory, alert_factory, user_factory) -> None:
+def test_tool_denied_without_permission(
+    session_factory, alert_factory, user_factory
+) -> None:
     from sentinelflow.ai.tools import build_context
 
     alert_id = alert_factory()
@@ -439,7 +436,9 @@ def test_search_events_is_scoped_to_the_alert(
     from sentinelflow.models.alert import Alert
 
     first = alert_factory(evidence_count=4, username="alice.demo")
-    second = alert_factory(evidence_count=4, username="bob.demo")
+    # A second alert exists so the test can show the context stays scoped to
+    # one alert rather than sweeping up every event.
+    alert_factory(evidence_count=4, username="bob.demo")
 
     with session_factory() as session:
         alert = session.get(Alert, first)
@@ -452,6 +451,7 @@ def test_search_events_is_scoped_to_the_alert(
         )
 
     assert execution.status == "ok"
+    assert execution.result is not None
     returned = execution.result["events"]
     assert len(returned) == 4
     assert {item["username"] for item in returned} == {"alice.demo"}
@@ -475,12 +475,13 @@ def test_search_runbooks_finds_local_corpus(
         )
 
     assert execution.status == "ok"
+    assert execution.result is not None
     assert execution.result["returned"] >= 1
     assert execution.result["runbooks"][0]["id"].startswith("RB-")
 
 
 def test_search_input_rejects_oversized_keyword() -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         SearchEventsInput(keyword="a" * 101)
 
 
@@ -531,28 +532,15 @@ def test_log_text_is_passed_as_data_not_instructions(
     assert [item["tool_name"] for item in body["tool_calls"]] == ["search_events"]
     # The system prompt tells the model that tool output is untrusted data.
     assert "UNTRUSTED DATA" in client.system_prompts[0]
-    assert "delete_alert" not in {spec["function"]["name"] for spec in client.tool_definitions}
+    assert "delete_alert" not in {
+        spec["function"]["name"] for spec in client.tool_definitions
+    }
     # The injected text is available as evidence but never as an action.
     tool_payload = json.dumps(client.transcripts[-1], ensure_ascii=False)
     assert "IGNORE ALL PREVIOUS INSTRUCTIONS" in tool_payload
 
 
 # --- Failure modes required by the acceptance checklist ---------------------
-
-
-class FailingClient:
-    """Raises on every call, simulating a provider error or timeout."""
-
-    provider = "mock"
-    model = "mock-investigator"
-
-    def __init__(self, message: str = "Model request failed: URLError") -> None:
-        self.message = message
-        self.calls = 0
-
-    def complete(self, **_kwargs) -> ModelTurn:
-        self.calls += 1
-        raise ModelClientError(self.message)
 
 
 def test_model_call_failure_marks_investigation_failed(
@@ -702,6 +690,7 @@ def test_tool_result_never_includes_other_alerts_events(
             timeout_seconds=5,
         )
 
+    assert execution.result is not None
     usernames = {item["username"] for item in execution.result["events"]}
     assert usernames == {"alice.demo"}
     assert execution.result["total"] == 3

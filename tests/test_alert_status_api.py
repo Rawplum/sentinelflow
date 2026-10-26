@@ -56,7 +56,9 @@ def test_open_to_acknowledged_writes_history_and_audit(
         ("investigating", "closed"),
     ],
 )
-def test_allowed_forward_transitions(admin_client, alert_factory, first, second) -> None:
+def test_allowed_forward_transitions(
+    admin_client, alert_factory, first, second
+) -> None:
     alert_id = alert_factory()
 
     assert _patch(admin_client, alert_id, first).status_code == 200
@@ -109,7 +111,9 @@ def test_same_status_is_idempotent_noop(admin_client, alert_factory) -> None:
 
 def test_reopen_requires_reason(admin_client, alert_factory) -> None:
     alert_id = alert_factory()
-    assert _patch(admin_client, alert_id, "closed", reason="duplicate").status_code == 200
+    assert (
+        _patch(admin_client, alert_id, "closed", reason="duplicate").status_code == 200
+    )
 
     without_reason = _patch(admin_client, alert_id, "open")
     assert without_reason.status_code == 422

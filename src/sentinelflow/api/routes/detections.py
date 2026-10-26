@@ -12,6 +12,8 @@ from sentinelflow.services.audit import record_audit
 from sentinelflow.services.detection import (
     RULE_ID,
     RULE_VERSION,
+)
+from sentinelflow.services.detection import (
     run_detection as run_detection_service,
 )
 

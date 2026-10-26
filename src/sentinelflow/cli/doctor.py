@@ -20,9 +20,10 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
-from sentinelflow.core.config import get_settings
+from sentinelflow.core.config import Settings, get_settings
 
 OK = "OK  "
 WARN = "WARN"
@@ -69,11 +70,11 @@ def check_python() -> Check:
     return Check("python", OK, text_version)
 
 
-def check_config() -> tuple[Check, object | None]:
+def check_config() -> tuple[Check, Settings | None]:
     """Load settings and validate the JWT secret the way signing would."""
     try:
         settings = get_settings()
-    except Exception as exc:  # noqa: BLE001 - any load error is the finding
+    except Exception as exc:
         return (
             Check(
                 "config",
@@ -121,7 +122,7 @@ def check_config() -> tuple[Check, object | None]:
     return Check("config", OK, "JWT_SECRET set"), settings
 
 
-def check_database(dsn: str) -> tuple[Check, object | None]:
+def check_database(dsn: str) -> tuple[Check, Engine | None]:
     """Open one connection and run SELECT 1."""
     if not dsn:
         return (
@@ -142,7 +143,7 @@ def check_database(dsn: str) -> tuple[Check, object | None]:
 
     try:
         engine = create_engine(dsn, pool_pre_ping=True, connect_args=connect_args)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return (
             Check(
                 "database",
@@ -171,7 +172,7 @@ def check_database(dsn: str) -> tuple[Check, object | None]:
     return Check("database", OK, _mask_dsn(dsn)), engine
 
 
-def check_migrations(engine) -> Check:
+def check_migrations(engine: Engine) -> Check:
     """Compare alembic_version with the newest revision on disk."""
     try:
         tables = set(inspect(engine).get_table_names())
@@ -222,11 +223,11 @@ def _head_revision() -> str | None:
         config = Config(str(config_path))
         config.set_main_option("script_location", "migrations")
         return ScriptDirectory.from_config(config).get_current_head()
-    except Exception:  # noqa: BLE001 - a missing migrations dir is not fatal here
+    except Exception:
         return None
 
 
-def check_users(engine) -> Check:
+def check_users(engine: Engine) -> Check:
     with engine.connect() as connection:
         count = connection.execute(text("SELECT count(*) FROM users")).scalar_one()
     if count == 0:
@@ -239,7 +240,7 @@ def check_users(engine) -> Check:
     return Check("users", OK, f"{count} user(s)")
 
 
-def check_agent(settings) -> Check:
+def check_agent(settings: Settings) -> Check:
     configured = bool(
         settings.llm_provider
         and settings.llm_model

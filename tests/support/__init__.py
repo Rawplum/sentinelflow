@@ -8,7 +8,10 @@ mock model: the real client is only replaced at the FastAPI dependency boundary.
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, TypedDict
+
+from fastapi import FastAPI
+from sqlalchemy.orm import sessionmaker
 
 from sentinelflow.ai.model_client import (
     AgentFindings,
@@ -71,7 +74,15 @@ def install(app, client) -> None:
 # timing. They drain the durable queue explicitly, through the same
 # claim/execute code the worker uses.
 
-_configured: dict[str, object] = {"app": None, "session_factory": None}
+
+class _Configured(TypedDict):
+    """The app and session factory the test fixtures hand to the worker."""
+
+    app: FastAPI | None
+    session_factory: sessionmaker | None
+
+
+_configured: _Configured = {"app": None, "session_factory": None}
 
 
 def configure(app, session_factory) -> None:
@@ -86,7 +97,7 @@ def drain_pending(limit: int = 50) -> int:
     from sentinelflow.core.config import get_settings
     from sentinelflow.services.investigation_worker import process_one
 
-    app = _configured["app"]
+    app: FastAPI | None = _configured["app"]
     factory = _configured["session_factory"]
     if app is None or factory is None:
         raise RuntimeError("support.configure(app, session_factory) was not called")
@@ -153,10 +164,10 @@ def findings(cited: list[uuid.UUID], **overrides) -> AgentFindings:
 __all__ = [
     "FailingClient",
     "ScriptedClient",
-    "evidence_ids",
-    "findings",
     "configure",
     "drain_pending",
+    "evidence_ids",
+    "findings",
     "install",
     "run_via_api",
 ]

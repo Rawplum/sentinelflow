@@ -23,7 +23,7 @@ from sentinelflow.ai.model_client import (
     build_model_client,
 )
 from sentinelflow.core.config import get_settings
-from support.stub_provider import SLOW, StubProvider, completion
+from support.stub_provider import StubProvider, completion
 
 
 def _client(server: StubProvider, *, timeout: float = 5.0) -> OpenAICompatibleClient:
@@ -124,9 +124,7 @@ def test_parses_tool_calls(stub_provider) -> None:
         )
     )
 
-    turn = _client(stub_provider).complete(
-        system_prompt="s", transcript=[], tools=[]
-    )
+    turn = _client(stub_provider).complete(system_prompt="s", transcript=[], tools=[])
 
     assert turn.findings is None
     assert len(turn.tool_calls) == 1
@@ -156,9 +154,7 @@ def test_parses_findings(stub_provider) -> None:
         )
     )
 
-    turn = _client(stub_provider).complete(
-        system_prompt="s", transcript=[], tools=[]
-    )
+    turn = _client(stub_provider).complete(system_prompt="s", transcript=[], tools=[])
 
     assert turn.findings is not None
     assert turn.findings.risk_level == "high"
@@ -178,9 +174,7 @@ def test_markdown_fenced_findings_are_accepted(stub_provider) -> None:
         (200, _completion({"content": f"```json\n{json.dumps(payload)}\n```"}))
     )
 
-    turn = _client(stub_provider).complete(
-        system_prompt="s", transcript=[], tools=[]
-    )
+    turn = _client(stub_provider).complete(system_prompt="s", transcript=[], tools=[])
 
     assert turn.findings is not None
 
@@ -324,6 +318,5 @@ def test_full_investigation_through_a_stub_provider(
         for request in stub_provider.requests
     )
     assert all(
-        request["path"] == "/v1/chat/completions"
-        for request in stub_provider.requests
+        request["path"] == "/v1/chat/completions" for request in stub_provider.requests
     )

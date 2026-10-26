@@ -141,9 +141,9 @@ class OpenAICompatibleClient:
     ) -> ModelTurn:
         request = urllib.request.Request(
             f"{self.base_url}/chat/completions",
-            data=json.dumps(
-                self._payload(system_prompt, transcript, tools)
-            ).encode("utf-8"),
+            data=json.dumps(self._payload(system_prompt, transcript, tools)).encode(
+                "utf-8"
+            ),
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self._api_key}",
@@ -193,7 +193,9 @@ def _parse_completion(body: dict[str, Any]) -> ModelTurn:
             raise ModelClientError("Tool call is missing a function name")
         arguments = function.get("arguments") or "{}"
         try:
-            parsed_arguments = json.loads(arguments) if isinstance(arguments, str) else arguments
+            parsed_arguments = (
+                json.loads(arguments) if isinstance(arguments, str) else arguments
+            )
         except json.JSONDecodeError as exc:
             raise ModelClientError("Tool call arguments are not valid JSON") from exc
         if not isinstance(parsed_arguments, dict):

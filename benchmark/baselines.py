@@ -17,10 +17,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from sentinelflow.ai.agent import PROMPT_VERSION
 from sentinelflow.ai.model_client import (
     AgentFindings,
     ModelClient,
@@ -28,9 +26,7 @@ from sentinelflow.ai.model_client import (
     ModelTurn,
     ToolCallRequest,
 )
-from sentinelflow.core.time import utcnow
 from sentinelflow.models.alert import Alert
-from sentinelflow.models.security_event import SecurityEvent
 from sentinelflow.models.user import User
 from sentinelflow.services.investigations import run_investigation
 from sentinelflow.services.reports import build_report, load_alert_evidence
@@ -163,7 +159,9 @@ def _finish(
     )
     result.schema_valid = True
     # A citation is only valid if it names an event of this alert.
-    result.citations_valid = bool(result.cited_ids) and set(result.cited_ids) <= known_ids
+    result.citations_valid = (
+        bool(result.cited_ids) and set(result.cited_ids) <= known_ids
+    )
     return result
 
 
@@ -307,7 +305,9 @@ def run_agent(
     result.limitations = list(content["limitations"])
     result.cited_ids = [item["event_id"] for item in content["evidence"]]
     result.schema_valid = True
-    result.citations_valid = bool(result.cited_ids) and set(result.cited_ids) <= known_ids
+    result.citations_valid = (
+        bool(result.cited_ids) and set(result.cited_ids) <= known_ids
+    )
     result.refused = _mentions_refusal(
         " ".join([content["summary"], content["reasoning"], *content["limitations"]])
     )
@@ -333,9 +333,7 @@ class EchoToolClient:
         ids = re.findall(
             r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", text
         )
-        tool_messages = [
-            item for item in transcript if item.get("role") == "tool"
-        ]
+        tool_messages = [item for item in transcript if item.get("role") == "tool"]
         if tools and not tool_messages:
             return ModelTurn(
                 tool_calls=[

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Any, Protocol
 
@@ -111,7 +111,7 @@ def ensure_auth_configured() -> None:
 def create_access_token(user: TokenSubject) -> tuple[str, int]:
     settings = get_settings()
     secret = get_jwt_secret()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expires_delta = timedelta(minutes=settings.access_token_expire_minutes)
     payload = {
         "sub": str(user.id),
@@ -153,4 +153,4 @@ def decode_access_token(token: str) -> dict[str, Any]:
 
 def token_expires_at(payload: dict[str, Any]) -> datetime:
     """Return the token expiry as an aware UTC datetime."""
-    return datetime.fromtimestamp(int(payload["exp"]), tz=timezone.utc)
+    return datetime.fromtimestamp(int(payload["exp"]), tz=UTC)

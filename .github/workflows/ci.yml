@@ -1,0 +1,200 @@
+# Checks that must pass before a change lands.
+#
+# Two jobs run the same entry point a developer runs locally, so "it passed on
+# my machine" and "it passed in CI" mean the same thing:
+#
+#   python scripts/check.py --backend-only
+#   python scripts/check.py --frontend-only
+#
+# A third job runs the backend against a real PostgreSQL, because the default
+# suite uses SQLite and two concurrency tests only mean something on PostgreSQL.
+#
+# The job at the bottom is the only one that would touch a real model. It never
+# runs on push or pull_request, and it is not part of the required checks.
+#
+# No step here deletes or resets tracked files. The database jobs create their
+# own throwaway databases inside the service container.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Keep pip and npm quiet and deterministic in logs.
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  backend:
+    name: Backend (lint, types, tests on SQLite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Check
+        run: python scripts/check.py --backend-only
+
+  frontend:
+    name: Frontend (lint, tests, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        working-directory: frontend
+        run: npm ci
+
+      - name: Check
+        run: python3 scripts/check.py --frontend-only
+
+  postgres:
+    name: Backend against PostgreSQL 16
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sentinelflow_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # The suite reads TEST_DATABASE_URL and switches to PostgreSQL when it is
+      # set. The migration test drops and recreates every table, so it gets its
+      # own database rather than sharing the one the suite uses.
+      TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/sentinelflow_test
+      MIGRATION_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/sentinelflow_migrations
+      JWT_SECRET: ci-only-secret-0123456789abcdefghijklmnop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Create databases
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE sentinelflow_migrations'
+          psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE sentinelflow_ci'
+
+      - name: Suite against PostgreSQL
+        run: python -m pytest -q
+
+      - name: Migration up/down test
+        run: python -m pytest -q tests/test_migrations.py
+
+      - name: Migrations apply cleanly to an empty database
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/sentinelflow_ci
+        run: |
+          python -m alembic upgrade head
+          python -m alembic current
+          # Fails when a model change has no matching migration.
+          python -m alembic check
+
+  # ---------------------------------------------------------------------------
+  # Optional, manual only. Never runs on push or pull_request, and is not part
+  # of the required checks. It needs a repository secret LLM_API_KEY; when the
+  # secret is absent the job is skipped rather than failed.
+  #
+  # Nothing in the required jobs needs a real key: the agent tests use the
+  # scripted client in tests/support, and the benchmark defaults to --model
+  # self-test.
+  # ---------------------------------------------------------------------------
+  optional-real-model:
+    name: Optional - agent benchmark against a real model
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: key
+        name: Check for the model secret
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: |
+          if [ -z "$LLM_API_KEY" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::LLM_API_KEY is not configured; skipping the optional benchmark."
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.key.outputs.present == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - if: steps.key.outputs.present == 'true'
+        name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - if: steps.key.outputs.present == 'true'
+        name: Benchmark (25 synthetic cases, 2 runs)
+        # The key is passed through env, never on the command line, so it does
+        # not appear in the process list or in the job log.
+        env:
+          LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'deepseek' }}
+          LLM_MODEL: ${{ vars.LLM_MODEL || 'deepseek-flash' }}
+          LLM_API_BASE: ${{ vars.LLM_API_BASE || 'https://api.deepseek.com' }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: python -m benchmark.runner --baseline all --model real --repeat 2
+
+      - if: steps.key.outputs.present == 'true'
+        name: Upload the report
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-report
+          path: benchmark/last_report.json
+          if-no-files-found: warn

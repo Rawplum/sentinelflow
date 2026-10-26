@@ -9,7 +9,7 @@ time, and may legitimately differ from the current database rows later.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -31,13 +31,11 @@ def _iso(value: datetime | None) -> str | None:
     if value is None:
         return None
     if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).isoformat()
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC).isoformat()
 
 
-def build_input_snapshot(
-    alert: Alert, report: InvestigationReportResponse
-) -> dict:
+def build_input_snapshot(alert: Alert, report: InvestigationReportResponse) -> dict:
     """Capture the inputs a report version was generated from."""
     return {
         "captured_at": _iso(utcnow()),
@@ -68,9 +66,7 @@ def next_version(session: Session, alert_id: uuid.UUID) -> int:
     return (current or 0) + 1
 
 
-def get_report(
-    session: Session, report_id: uuid.UUID
-) -> InvestigationReport | None:
+def get_report(session: Session, report_id: uuid.UUID) -> InvestigationReport | None:
     return session.get(InvestigationReport, report_id)
 
 

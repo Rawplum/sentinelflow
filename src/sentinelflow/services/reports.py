@@ -194,9 +194,7 @@ def build_report(
         if failures == total:
             counted = f"{total} failed authentication attempts"
         else:
-            counted = (
-                f"{total} authentication events ({failures} failed) "
-            )
+            counted = f"{total} authentication events ({failures} failed) "
         summary = (
             f"Rule {alert.rule_id} identified {counted} "
             f"for user '{username}' from {source_ip} between "

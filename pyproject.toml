@@ -24,6 +24,8 @@ dependencies = [
 dev = [
     "pytest>=8.2,<9.0",
     "httpx2>=2.14,<3.0",
+    "ruff>=0.6,<1.0",
+    "mypy>=1.11,<3.0",
     # Used by tests/test_deploy_config.py to inspect compose.yaml without Docker.
     "PyYAML>=6.0,<7.0",
 ]
@@ -33,6 +35,44 @@ sentinelflow-import = "sentinelflow.cli.import_events:main"
 sentinelflow-create-user = "sentinelflow.cli.create_user:main"
 sentinelflow-investigate = "sentinelflow.cli.investigate:main"
 sentinelflow-doctor = "sentinelflow.cli.doctor:main"
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "src"
+files = ["src/sentinelflow", "tests"]
+# Third-party stubs are incomplete (psycopg, FastAPI internals); silence the
+# missing-stub noise rather than pinning stub packages that drift.
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# Pinned explicitly: ruff's defaults change between releases, and a check that
+# silently starts flagging new rules is not a stable check.
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "RUF"]
+ignore = [
+    # FastAPI's dependency injection is a call in a default argument, by design.
+    "B008",
+    # Line length is the formatter's job; the linter does not double-report it.
+    "E501",
+    # The docs and messages are written in Chinese; full-width punctuation in
+    # strings is intended, not an ambiguous-character bug.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["sentinelflow"]
+
+[tool.ruff.format]
+quote-style = "double"
 
 [tool.setuptools.packages.find]
 where = ["src"]

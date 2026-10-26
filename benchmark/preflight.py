@@ -73,8 +73,7 @@ def probe() -> int:
 
     if not model_is_configured():
         print(
-            "not configured: set LLM_PROVIDER, LLM_MODEL, LLM_API_BASE and "
-            "LLM_API_KEY",
+            "not configured: set LLM_PROVIDER, LLM_MODEL, LLM_API_BASE and LLM_API_KEY",
             file=sys.stderr,
         )
         return 2
@@ -134,7 +133,9 @@ def probe() -> int:
         len(turn.findings.cited_event_ids),
     )
     print()
-    print("endpoint is usable. Next: python -m benchmark.runner --baseline all --model real")
+    print(
+        "endpoint is usable. Next: python -m benchmark.runner --baseline all --model real"
+    )
     return 0
 
 

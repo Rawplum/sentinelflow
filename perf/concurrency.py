@@ -14,6 +14,8 @@ Three questions the single-threaded runs cannot answer:
 
 from __future__ import annotations
 
+import contextlib
+import itertools
 import json
 import socket
 import threading
@@ -69,7 +71,7 @@ class _StubModel:
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
 
-            def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+            def do_POST(self) -> None:
                 length = int(self.headers.get("Content-Length") or 0)
                 self.rfile.read(length)
                 time.sleep(delay_seconds)
@@ -132,7 +134,9 @@ def _ensure_alerts(client: Client, wanted: int) -> list[str]:
 # --- 1. concurrent status updates -------------------------------------------
 
 
-def concurrent_status_updates(url: str, *, workers: int = 8, rounds: int = 6) -> Outcome:
+def concurrent_status_updates(
+    url: str, *, workers: int = 8, rounds: int = 6
+) -> Outcome:
     targets = ["acknowledged", "investigating", "closed"]
     codes: Counter[int] = Counter()
     lock = threading.Lock()
@@ -175,7 +179,7 @@ def concurrent_status_updates(url: str, *, workers: int = 8, rounds: int = 6) ->
         if history[0]["from_status"] != "open":
             chain_problem = f"first row starts at {history[0]['from_status']}, not open"
         else:
-            for previous, current in zip(history, history[1:]):
+            for previous, current in itertools.pairwise(history):
                 if previous["to_status"] != current["from_status"]:
                     chain_problem = (
                         f"row ending at '{previous['to_status']}' is followed by a row "
@@ -218,7 +222,9 @@ def concurrent_status_updates(url: str, *, workers: int = 8, rounds: int = 6) ->
 # --- 2. concurrent investigations for one alert ------------------------------
 
 
-def concurrent_investigations(url: str, *, workers: int = 6, alerts: int = 3) -> Outcome:
+def concurrent_investigations(
+    url: str, *, workers: int = 6, alerts: int = 3
+) -> Outcome:
     stub = _StubModel(delay_seconds=1.5)
     env = {
         "LLM_PROVIDER": "stub",
@@ -345,9 +351,12 @@ def _overlapping_intervals(url: str, alert_ids: list[str]) -> list[str]:
     previous_alert = None
     previous_end = None
     for alert_id, started, completed in rows:
-        if alert_id == previous_alert and previous_end is not None:
-            if started < previous_end:
-                bad.append(str(alert_id))
+        if (
+            alert_id == previous_alert
+            and previous_end is not None
+            and started < previous_end
+        ):
+            bad.append(str(alert_id))
         previous_alert = alert_id
         previous_end = completed
     return bad
@@ -417,10 +426,8 @@ def model_timeout(url: str, *, timeout_seconds: int = 2) -> Outcome:
             client.close()
     finally:
         for connection in held:
-            try:
+            with contextlib.suppress(OSError):
                 connection.close()
-            except OSError:
-                pass
         listener.close()
 
     ok = (
@@ -470,7 +477,9 @@ def main() -> int:
         print(f"  {mark}  {outcome.name.ljust(width)}  {outcome.detail}")
 
     print()
-    print(json.dumps({o.name: o.evidence for o in outcomes}, indent=2, ensure_ascii=False))
+    print(
+        json.dumps({o.name: o.evidence for o in outcomes}, indent=2, ensure_ascii=False)
+    )
     return 0 if all(outcome.ok for outcome in outcomes) else 1
 
 

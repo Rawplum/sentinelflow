@@ -44,6 +44,8 @@ SentinelFlow 是一个 AI 辅助的安全事件研判与响应平台。当前版
 | 安全加固与负向测试 | 已实现，46 项 | 见 `docs/SECURITY.md`：威胁模型、12 类控制、残余风险 |
 | Agent 对比基准 | 已实现，三方均有真实结果 | 25 个用例；见 `docs/BENCHMARK.md` |
 | 性能与并发实测 | 已实现，修复 4 个问题 | `perf/`；96k 事件下的 P50/P95 见 `docs/PERFORMANCE.md` |
+| 静态检查与类型 | 已接入，0 告警 | ruff 0 问题、mypy 89 文件 0 错误 |
+| CI | 已配置，未在真实 runner 上跑过 | `.github/workflows/ci.yml`，3 个必需 job + 1 个可选 |
 | 真实浏览器 E2E | 已实现，16 项通过 | `e2e/browser.mjs`（真实 Chromium + 真实后端） |
 | 调查过程追踪 | 已实现，测试通过 | `investigation_rounds` + 轮次/工具耗时 + `duration_ms` + `request_id` |
 | 前端调查闭环 | 已实现，测试通过 | 告警详情页启动调查、轮询状态、查看步骤/工具/报告、失败重试 |
@@ -560,18 +562,52 @@ curl "http://127.0.0.1:8000/api/v1/audit-logs?limit=50&offset=0" \
 
 完整请求/响应、错误码和未实现接口见 `docs/API_SPEC.md`。
 
-## 测试
+## 质量检查
 
-默认（SQLite，快速、无需外部服务）：
+一条命令跑完所有检查（CI 跑的是同一条命令）：
 
 ```bat
-pytest -q
+python scripts/check.py
 ```
 
-实际结果：`358 passed, 3 skipped`。跳过的是需要真实 PostgreSQL 的迁移测试（1 项）
-和两条并发回归测试（2 项，SQLite 无法复现竞态）。
+```text
+-> format ... PASS
+-> lint ... PASS
+-> types ... PASS
+-> backend tests ... PASS
+-> frontend lint ... PASS
+-> frontend tests ... PASS
+-> frontend build ... PASS
+```
 
-使用真实 PostgreSQL：
+常用变体：
+
+| 命令 | 做什么 |
+| --- | --- |
+| `python scripts/check.py` | 全部：格式、静态检查、类型、后端测试、前端 lint/test/build |
+| `python scripts/check.py --fast` | 只跑静态部分（约 3 秒），提交前用 |
+| `python scripts/check.py --backend-only` | 不碰 npm |
+| `python scripts/check.py --frontend-only` | 只跑前端 |
+| `python scripts/check.py --with-db` | 额外跑 `alembic check`（需要可连的 `DATABASE_URL`） |
+| `python scripts/check.py --list` | 列出步骤 |
+
+### 单独跑某一项
+
+| 检查 | 命令 | 实际结果（2026-10-25） |
+| --- | --- | --- |
+| 格式 | `ruff format --check src tests benchmark perf evaluation migrations` | 110 个文件通过 |
+| 静态检查 | `ruff check src tests benchmark perf evaluation migrations` | 0 问题 |
+| 类型 | `mypy`（配置在 `pyproject.toml`，覆盖 `src/` + `tests/`） | 89 个文件 0 错误 |
+| 后端测试 | `pytest -q` | `358 passed, 3 skipped` |
+| 前端 lint | `cd frontend && npm run lint` | 0 warning |
+| 前端测试 | `cd frontend && npm test` | 48 passed / 12 files |
+| 前端构建 | `cd frontend && npm run build` | 通过 |
+| 迁移一致性 | `alembic check` | 需要数据库 |
+
+**跳过的是什么**：`358 passed, 3 skipped` 里的 3 项——1 项迁移测试（需要真实 PostgreSQL）
+和 2 项并发回归测试（SQLite 忽略 `FOR UPDATE`，既复现不了竞态也证明不了修复）。
+
+### 用真实 PostgreSQL 跑
 
 ```bat
 set "TEST_DATABASE_URL=postgresql+psycopg://user:password@127.0.0.1:5432/sentinelflow_test"
@@ -579,7 +615,24 @@ set "MIGRATION_TEST_DATABASE_URL=postgresql+psycopg://user:password@127.0.0.1:54
 pytest -q
 ```
 
-实际结果（PostgreSQL 16.15，2026-10-25）：`341 passed`（该轮之后新增 3 项报告准确性测试）；`tests/test_migrations.py` 单独跑 `1 passed`。
+实际结果（PostgreSQL 16.15）：`360 passed, 1 skipped`。迁移测试会 DROP 表，所以必须单独跑：
+`pytest -q tests/test_migrations.py`。
+
+### CI
+
+`.github/workflows/ci.yml`，三个必需 job + 一个可选 job：
+
+| Job | 跑什么 | 需要密钥 |
+| --- | --- | --- |
+| `backend` | `scripts/check.py --backend-only` | 否 |
+| `frontend` | `scripts/check.py --frontend-only` | 否 |
+| `postgres` | 全量测试 + 迁移升降级 + `alembic check` | 否 |
+| `optional-real-model` | 真实模型基准（仅手动触发） | 是（`LLM_API_KEY`） |
+
+必需 job **不需要任何真实密钥**：Agent 测试用 `tests/support` 里的脚本化客户端，
+基准默认 `--model self-test`。可选 job 只在手动触发时运行，没有配置密钥时会跳过而不是失败。
+
+CI 里没有任何步骤删除或重置仓库文件；数据库 job 在自己的 service container 里建临时库。
 
 说明：
 
@@ -689,6 +742,8 @@ alembic downgrade 0001
 ├── migrations/                     # Alembic 环境与版本
 ├── data/sample_events.jsonl        # 合成数据（含异常行）
 ├── docs/                           # 项目文档
+├── .github/workflows/ci.yml        # 必需检查 + 可选真实模型 job
+├── scripts/check.py                # 唯一检查入口（CI 也调它）
 ├── e2e/browser.mjs                 # 真实浏览器端到端
 ├── perf/                           # 性能与并发实测（合成数据）
 ├── alembic.ini

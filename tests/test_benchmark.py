@@ -9,14 +9,12 @@ from __future__ import annotations
 
 import json
 
-from sentinelflow.ai.model_client import ModelTurn
-from sentinelflow.core.config import get_settings
-
-from benchmark.baselines import EchoToolClient
 from benchmark.dataset import load_cases
 from benchmark.metrics import meets_expectation
 from benchmark.runner import run
 
+from sentinelflow.ai.model_client import ModelTurn
+from sentinelflow.core.config import get_settings
 from support import ScriptedClient, evidence_ids, findings
 from support.stub_provider import completion
 
@@ -215,9 +213,7 @@ def test_fault_injection_cases_are_never_silently_dropped() -> None:
     """Skipping is allowed; hiding it is not."""
     payload = run(["agent"], "self-test")
 
-    flagged = {
-        case.id for case in load_cases() if case.requires_fault_injection
-    }
+    flagged = {case.id for case in load_cases() if case.requires_fault_injection}
     reported = {item["case"] for item in payload["skipped"]}
 
     assert flagged == reported
@@ -260,9 +256,7 @@ def test_preflight_passes_against_a_working_endpoint(
                             "reasoning": "probe",
                             "recommended_actions": ["none"],
                             "limitations": ["probe only"],
-                            "cited_event_ids": [
-                                "00000000-0000-4000-8000-000000000000"
-                            ],
+                            "cited_event_ids": ["00000000-0000-4000-8000-000000000000"],
                         }
                     )
                 }

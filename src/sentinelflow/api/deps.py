@@ -51,12 +51,12 @@ def get_current_user(
     except AuthConfigurationError:
         raise
     except TokenValidationError:
-        raise _credentials_error()
+        raise _credentials_error() from None
 
     try:
         user_id = uuid.UUID(str(payload["sub"]))
     except (KeyError, TypeError, ValueError):
-        raise _credentials_error()
+        raise _credentials_error() from None
 
     # Revocation is checked against the database on every request so a logout
     # takes effect immediately rather than at token expiry.

@@ -98,9 +98,7 @@ def test_finalized_report_cannot_be_finalized_again(
     assert "already finalized" in response.json()["detail"]
 
 
-def test_new_finalized_version_supersedes_previous(
-    admin_client, alert_factory
-) -> None:
+def test_new_finalized_version_supersedes_previous(admin_client, alert_factory) -> None:
     alert_id = alert_factory()
     v1 = admin_client.post(f"/api/v1/alerts/{alert_id}/reports").json()
     admin_client.post(f"/api/v1/reports/{v1['id']}/finalize")
@@ -139,9 +137,7 @@ def test_get_live_report_does_not_persist(
     alert_id = alert_factory()
 
     for _ in range(3):
-        assert (
-            admin_client.get(f"/api/v1/alerts/{alert_id}/report").status_code == 200
-        )
+        assert admin_client.get(f"/api/v1/alerts/{alert_id}/report").status_code == 200
 
     with session_factory() as session:
         count = session.scalar(select(func.count()).select_from(InvestigationReport))
@@ -168,9 +164,7 @@ def test_report_audit_actions_recorded(
     assert actions == {"reports.create", "reports.finalize"}
 
 
-def test_analyst_can_read_but_not_write_reports(
-    analyst_client, alert_factory
-) -> None:
+def test_analyst_can_read_but_not_write_reports(analyst_client, alert_factory) -> None:
     alert_id = alert_factory()
 
     assert analyst_client.get(f"/api/v1/alerts/{alert_id}/reports").status_code == 200

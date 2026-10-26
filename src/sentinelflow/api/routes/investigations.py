@@ -31,12 +31,10 @@ from sentinelflow.services.investigations import (
     InvestigationConflictError,
     InvestigationQueueFullError,
     create_investigation,
-    execute_investigation,
     get_investigation,
     list_rounds,
     list_tool_calls,
     recover_stale_investigation,
-    terminate_investigation,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["investigations"])
@@ -193,4 +191,4 @@ def get_investigation_endpoint(
     return _to_read(db, investigation)
 
 
-__all__ = ["router", "provide_model_client", "ModelNotConfiguredError"]
+__all__ = ["ModelNotConfiguredError", "provide_model_client", "router"]

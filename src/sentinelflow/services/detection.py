@@ -167,7 +167,7 @@ def _to_detection_event(event: SecurityEvent) -> DetectionEvent:
     )
 
 
-def _alert_row(window: "DetectionWindow") -> Alert:
+def _alert_row(window: DetectionWindow) -> Alert:
     return Alert(
         id=uuid.uuid4(),
         rule_id=RULE_ID,
@@ -191,7 +191,7 @@ def _alert_row(window: "DetectionWindow") -> Alert:
 
 def _insert_alerts(
     session: Session,
-    windows: list["DetectionWindow"],
+    windows: list[DetectionWindow],
     orm_by_id: dict[uuid.UUID, SecurityEvent],
     existing_keys: set[str],
 ) -> tuple[list[uuid.UUID], int]:
@@ -209,7 +209,7 @@ def _insert_alerts(
     alerts = [_alert_row(window) for window in windows]
     links = [
         {"alert_id": alert.id, "event_id": event.event_id}
-        for alert, window in zip(alerts, windows)
+        for alert, window in zip(alerts, windows, strict=True)
         for event in window.events
         if event.event_id in orm_by_id
     ]
@@ -250,9 +250,7 @@ def _insert_alerts(
     return created, skipped
 
 
-def run_detection(
-    session: Session, *, commit: bool = True
-) -> DetectionRunResult:
+def run_detection(session: Session, *, commit: bool = True) -> DetectionRunResult:
     """Evaluate all imported authentication failures and persist new alerts."""
     rows = list(
         session.scalars(
@@ -291,9 +289,10 @@ def run_detection(
     skipped_existing += len(windows) - len(pending)
 
     if pending:
-        created_ids, skipped = _insert_alerts(session, pending, orm_by_id, existing_keys)
+        created_ids, skipped = _insert_alerts(
+            session, pending, orm_by_id, existing_keys
+        )
         skipped_existing += skipped
-
 
     if commit:
         session.commit()

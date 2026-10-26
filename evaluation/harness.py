@@ -13,11 +13,12 @@ import os
 import sys
 import time
 import uuid
+from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CASES_PATH = Path(__file__).resolve().parent / "cases.json"
@@ -29,7 +30,7 @@ if _TESTS_DIR not in sys.path:
     sys.path.insert(0, _TESTS_DIR)
 
 from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy import create_engine, select  # noqa: E402
+from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 from sqlalchemy.pool import StaticPool  # noqa: E402
 
@@ -50,7 +51,6 @@ from sentinelflow.models.security_event import SecurityEvent  # noqa: E402
 from sentinelflow.schemas.alerts import InvestigationReportResponse  # noqa: E402
 from sentinelflow.services.auth import create_user  # noqa: E402
 from sentinelflow.services.investigation_worker import process_one  # noqa: E402
-
 from support import ScriptedClient  # noqa: E402
 
 ADMIN_USER = "eval.admin"
@@ -88,7 +88,7 @@ def load_cases() -> list[dict[str, Any]]:
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @contextmanager
@@ -186,7 +186,7 @@ class Harness:
         source_ip = spec.get("source_ip", "198.51.100.10")
         injection = spec.get("inject_message")
 
-        base = datetime(2026, 10, 19, 9, 0, tzinfo=timezone.utc)
+        base = datetime(2026, 10, 19, 9, 0, tzinfo=UTC)
         with self.session_factory() as session:
             events = []
             for index in range(count):
@@ -264,9 +264,7 @@ class Harness:
         return turns
 
     @staticmethod
-    def _resolve_citations(
-        spec: list[str], evidence_ids: list[uuid.UUID]
-    ) -> list[str]:
+    def _resolve_citations(spec: list[str], evidence_ids: list[uuid.UUID]) -> list[str]:
         resolved: list[str] = []
         for item in spec:
             if isinstance(item, str) and item.startswith("$"):
@@ -308,9 +306,7 @@ class Harness:
                 for name, mode in patches:
                     stack.enter_context(_patched_tool(name, mode))
 
-                created = self.admin.post(
-                    f"/api/v1/alerts/{alert_id}/investigations"
-                )
+                created = self.admin.post(f"/api/v1/alerts/{alert_id}/investigations")
                 result.http_status = created.status_code
                 if created.status_code != 202:
                     result.failures.append(
@@ -322,7 +318,7 @@ class Harness:
                 # queue through the same claim/execute path the worker uses.
                 self._drain(client)
                 final = self.admin.get(f"/api/v1/investigations/{investigation_id}")
-        except Exception as exc:  # noqa: BLE001 - surfaced as a case failure
+        except Exception as exc:
             result.failures.append(f"harness error: {exc.__class__.__name__}: {exc}")
             return result
 
@@ -354,14 +350,13 @@ class Harness:
         if result.report is not None:
             known = {str(item) for item in evidence_ids}
             cited = {
-                str(item["event_id"])
-                for item in result.report.get("evidence", [])
+                str(item["event_id"]) for item in result.report.get("evidence", [])
             }
             result.citations_valid = bool(cited) and cited <= known
             try:
                 InvestigationReportResponse.model_validate(result.report)
                 result.report_schema_valid = True
-            except Exception:  # noqa: BLE001 - recorded as a metric, not a crash
+            except Exception:
                 result.report_schema_valid = False
 
         result.failures.extend(
@@ -429,9 +424,7 @@ class Harness:
         failures: list[str] = []
 
         if "status" in expect and result.status != expect["status"]:
-            failures.append(
-                f"status: expected {expect['status']}, got {result.status}"
-            )
+            failures.append(f"status: expected {expect['status']}, got {result.status}")
 
         if "report" in expect and result.report_created != expect["report"]:
             failures.append(
@@ -518,7 +511,10 @@ class Harness:
 
         marker = expect.get("injection_marker")
         if marker:
-            if expect.get("injection_must_reach_tools") and not result.injection_marker_found:
+            if (
+                expect.get("injection_must_reach_tools")
+                and not result.injection_marker_found
+            ):
                 failures.append(
                     "injection: marker never reached the model as tool data"
                 )

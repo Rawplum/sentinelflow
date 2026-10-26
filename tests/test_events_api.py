@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import func, select
@@ -36,7 +36,9 @@ def test_duplicate_import_is_idempotent(admin_client, event_factory) -> None:
     assert second.json()["skipped"] == 2
 
 
-def test_duplicate_event_id_within_batch_is_skipped(admin_client, event_factory) -> None:
+def test_duplicate_event_id_within_batch_is_skipped(
+    admin_client, event_factory
+) -> None:
     event_id = uuid.uuid4()
     events = [
         event_factory(event_id=event_id),
@@ -54,7 +56,7 @@ def test_duplicate_event_id_within_batch_is_skipped(admin_client, event_factory)
 
 
 def test_event_list_pagination_and_order(admin_client, event_factory) -> None:
-    start = datetime(2026, 10, 19, 9, 0, tzinfo=timezone.utc)
+    start = datetime(2026, 10, 19, 9, 0, tzinfo=UTC)
     events = [
         event_factory(
             event_id=uuid.uuid4(),
@@ -167,7 +169,9 @@ def test_import_over_batch_limit_is_rejected(admin_client, event_factory) -> Non
     assert response.status_code == 422
 
 
-def test_event_round_trip_preserves_nullable_fields(admin_client, event_factory) -> None:
+def test_event_round_trip_preserves_nullable_fields(
+    admin_client, event_factory
+) -> None:
     event = event_factory(
         event_id=uuid.uuid4(),
         username=None,
@@ -185,7 +189,9 @@ def test_event_round_trip_preserves_nullable_fields(admin_client, event_factory)
     assert item["source_ip"] == "2001:db8::1"
 
 
-def test_import_persists_exact_event_ids(admin_client, event_factory, db_session) -> None:
+def test_import_persists_exact_event_ids(
+    admin_client, event_factory, db_session
+) -> None:
     event_id = uuid.uuid4()
     event = event_factory(event_id=event_id)
 
@@ -205,6 +211,4 @@ def test_import_service_commits_by_default(session_factory, event_factory) -> No
 
     assert result.imported == 1
     with session_factory() as session:
-        assert (
-            session.scalar(select(func.count()).select_from(SecurityEvent)) == 1
-        )
+        assert session.scalar(select(func.count()).select_from(SecurityEvent)) == 1

@@ -21,7 +21,7 @@ from __future__ import annotations
 import random
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import insert
 from sqlalchemy.orm import Session
@@ -30,7 +30,7 @@ from sentinelflow.models.alert import Alert, alert_events
 from sentinelflow.models.security_event import SecurityEvent
 
 #: Fixed epoch so a given seed always produces the same timestamps.
-BASE_TIME = datetime(2026, 3, 1, 0, 0, tzinfo=timezone.utc)
+BASE_TIME = datetime(2026, 3, 1, 0, 0, tzinfo=UTC)
 
 USER_POOL = tuple(f"user{i:03d}.demo" for i in range(200))
 IP_POOL = tuple(f"198.51.100.{i}" for i in range(1, 60)) + tuple(
@@ -108,9 +108,7 @@ def generate_events(spec: DatasetSpec) -> list[dict]:
                     "source_ip": IP_POOL[rng.randrange(len(IP_POOL))],
                     "asset_id": ASSET_POOL[rng.randrange(len(ASSET_POOL))],
                     "action": rng.choice(["login", "login", "read"]),
-                    "outcome": rng.choice(
-                        ["success", "failure", "success", "success"]
-                    ),
+                    "outcome": rng.choice(["success", "failure", "success", "success"]),
                     "raw_message": f"synthetic noise {burst}-{noise} for {other}",
                     "source": "synthetic-perf",
                     "created_at": started,
@@ -128,7 +126,9 @@ def insert_events(session: Session, rows: list[dict], *, chunk: int = 5000) -> i
     return len(rows)
 
 
-def seed_alert(session: Session, *, index: int, events: int, seed: int = 7) -> uuid.UUID:
+def seed_alert(
+    session: Session, *, index: int, events: int, seed: int = 7
+) -> uuid.UUID:
     """Create one alert with ``events`` linked evidence rows.
 
     Used for report-size scenarios: an alert with 150 evidence rows exercises

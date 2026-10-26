@@ -10,21 +10,29 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import timedelta
+from typing import Any
 
 from sqlalchemy import select
 
-from sentinelflow.ai.model_client import AgentFindings, ModelTurn, ToolCallRequest
+from sentinelflow.ai.model_client import ModelTurn, ToolCallRequest
 from sentinelflow.core.time import utcnow
 from sentinelflow.models.investigation import Investigation, InvestigationRound
 from sentinelflow.services.investigations import STALE_ERROR
-
 from support import (
     FailingClient,
-    drain_pending,
     ScriptedClient,
+    drain_pending,
+)
+from support import (
     evidence_ids as _evidence_ids,
+)
+from support import (
     findings as _findings,
+)
+from support import (
     install as _install,
+)
+from support import (
     run_via_api as _run,
 )
 
@@ -410,7 +418,7 @@ def test_trace_contains_no_credentials(
     _run(admin_client, alert_id)
 
     with session_factory() as session:
-        rows = []
+        rows: list[Any] = []
         for model in (Investigation, InvestigationRound, InvestigationToolCall):
             rows.extend(
                 _json.dumps(

@@ -14,9 +14,11 @@ PostgreSQL, which is the supported deployment target.
 
 from __future__ import annotations
 
+import itertools
 import os
 import threading
 import uuid
+from typing import Any
 
 import pytest
 from sqlalchemy import select
@@ -64,7 +66,7 @@ def _run_threads(target, count: int) -> list:
         barrier.wait()
         try:
             value = target(index)
-        except Exception as exc:  # noqa: BLE001 - recorded, asserted by the caller
+        except Exception as exc:
             value = exc
         with lock:
             results.append(value)
@@ -110,7 +112,7 @@ def test_concurrent_status_updates_produce_a_coherent_history(
 
     def attempt(index: int):
         """Several attempts per thread: one round rarely interleaves enough."""
-        outcomes = []
+        outcomes: list[Any] = []
         for step in range(4):
             with session_factory() as session:
                 user = session.merge(admin_user)
@@ -149,7 +151,7 @@ def test_concurrent_status_updates_produce_a_coherent_history(
     # The chain must join up: every row continues where the previous one ended.
     assert history, "at least one transition should have been recorded"
     assert history[0].from_status == "open"
-    for previous, current in zip(history, history[1:]):
+    for previous, current in itertools.pairwise(history):
         assert previous.to_status == current.from_status, (
             f"history row ending at '{previous.to_status}' is followed by a row "
             f"starting at '{current.from_status}'"
@@ -185,9 +187,13 @@ def test_only_one_investigation_can_start_per_alert(
     results = _run_threads(attempt, 6)
 
     created = [item for item in results if isinstance(item, Investigation)]
-    conflicts = [item for item in results if isinstance(item, InvestigationConflictError)]
+    conflicts = [
+        item for item in results if isinstance(item, InvestigationConflictError)
+    ]
 
-    assert len(created) == 1, f"{len(created)} investigations were created for one alert"
+    assert len(created) == 1, (
+        f"{len(created)} investigations were created for one alert"
+    )
     assert len(conflicts) == 5
 
     with session_factory() as session:

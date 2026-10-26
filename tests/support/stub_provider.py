@@ -19,7 +19,7 @@ SLOW = 0
 class _Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
-    def do_POST(self) -> None:  # noqa: N802 - http.server API
+    def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length)
         try:
@@ -65,10 +65,13 @@ class StubProvider(ThreadingHTTPServer):
 
     @property
     def base_url(self) -> str:
-        host, port = self.server_address[:2]
+        host = str(self.server_address[0])
+        port = int(self.server_address[1])
         return f"http://{host}:{port}/v1"
 
-    def queue_tool_call(self, name: str, arguments: dict[str, Any] | None = None) -> None:
+    def queue_tool_call(
+        self, name: str, arguments: dict[str, Any] | None = None
+    ) -> None:
         self.responses.append(
             (
                 200,

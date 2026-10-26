@@ -74,7 +74,7 @@ class SecurityEvent(Base):
         server_default=func.now(),
     )
 
-    alerts: Mapped[list["Alert"]] = relationship(
+    alerts: Mapped[list[Alert]] = relationship(
         secondary="alert_events",
         back_populates="evidence_events",
     )

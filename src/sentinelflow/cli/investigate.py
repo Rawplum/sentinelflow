@@ -116,8 +116,7 @@ def main(argv: list[str] | None = None) -> int:
         actor = _pick_actor(session, args.username)
         if actor is None:
             print(
-                "error: no admin user found; create one with "
-                "sentinelflow-create-user",
+                "error: no admin user found; create one with sentinelflow-create-user",
                 file=sys.stderr,
             )
             return 2

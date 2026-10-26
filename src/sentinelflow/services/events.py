@@ -37,9 +37,7 @@ def _to_model(event: SecurityEventCreate) -> SecurityEvent:
     )
 
 
-def _insert_if_absent(
-    session: Session, event: SecurityEventCreate
-) -> bool:
+def _insert_if_absent(session: Session, event: SecurityEventCreate) -> bool:
     """Insert one event inside a savepoint, returning False on a conflict."""
     if session.get(SecurityEvent, event.event_id) is not None:
         return False
@@ -135,9 +133,7 @@ def import_events(
 
 def _escape_like(value: str) -> str:
     """Escape LIKE wildcards so a search term is matched literally."""
-    return (
-        value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    )
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 @dataclass(frozen=True)

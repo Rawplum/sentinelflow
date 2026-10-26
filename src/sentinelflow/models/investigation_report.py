@@ -104,6 +104,4 @@ class InvestigationReport(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    finalized_by_username: Mapped[str | None] = mapped_column(
-        String(64), nullable=True
-    )
+    finalized_by_username: Mapped[str | None] = mapped_column(String(64), nullable=True)

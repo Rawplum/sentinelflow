@@ -392,14 +392,41 @@ pytest
     └── MIGRATION_TEST_DATABASE_URL → 独立迁移测试库
 ```
 
-## 10. 架构演进触发条件
+## 10. 质量门禁（当前）
+
+改动进入主分支前必须通过的检查，本地与 CI 执行**同一条命令**：
+
+```bat
+python scripts/check.py
+```
+
+| 步骤 | 工具 | 作用范围 |
+| --- | --- | --- |
+| 格式 | `ruff format --check` | `src` `tests` `benchmark` `perf` `evaluation` `migrations` |
+| 静态检查 | `ruff check` | 同上 |
+| 类型 | `mypy` | `src/sentinelflow` + `tests` |
+| 后端测试 | `pytest` | SQLite；PostgreSQL 在 CI 的独立 job 里跑 |
+| 前端 | `npm run lint` / `npm test` / `npm run build` | `frontend/` |
+
+三条约束：
+
+1. **规则集显式固定**在 `pyproject.toml`。工具升级不应该让昨天通过的代码今天失败。
+2. **不依赖真实密钥**。Agent 测试用 `tests/support` 的脚本化客户端，
+   基准默认 `--model self-test`；只有手动触发的 `optional-real-model` job 需要 `LLM_API_KEY`。
+3. **CI 不删除或重置仓库文件**。数据库 job 在自己的 service container 里建临时库，
+   迁移测试用独立库（它会 DROP 表）。
+
+分层原则没变：单元测试不碰数据库，集成测试用真实会话与约束，
+端到端和性能测试属于可选层，不进必需检查。
+
+## 11. 架构演进触发条件
 
 - 事件吞吐超过单进程同步处理能力 → 先做批量写入和索引优化，再考虑异步任务。
 - 规则评估耗时影响接入延迟 → 拆分为后台任务，但仍可保持单体部署。
 - Agent 调用需要长耗时 → 引入任务队列和任务状态表。
 - 需要多租户 → 在数据模型和授权层统一加入 tenant 边界，而不是事后补丁。
 
-## 11. 前端控制台（当前）
+## 12. 前端控制台（当前）
 
 前端是独立 `frontend/` 单页应用，不进入 FastAPI 进程：
 

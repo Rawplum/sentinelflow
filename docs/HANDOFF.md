@@ -15,11 +15,12 @@
 ```bat
 git log --oneline           :: 看最近几次提交，判断上次做到哪
 git status --short          :: 有输出 = 有未提交改动，先看清楚再动手
-pytest -q                   :: 期望 358 passed, 1 skipped（SQLite）
-python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 拒答
+python scripts/check.py     :: 全部检查，期望 7 步全 PASS
+pytest -q                   :: 期望 358 passed, 3 skipped（SQLite）
+python -m benchmark.runner  :: 确定性基线，期望 13/18 期望匹配、0/3 拒答
 ```
 
-**不要用文档里的数字代替这三条命令。** 文档会过期，命令不会。
+**不要用文档里的数字代替这四条命令。** 文档会过期，命令不会。
 基线提交本身不必逐个文件读——它的价值是"差异的参照点"，不是"要读的内容"。
 
 ### 当前状态（2026-10-25）
@@ -27,11 +28,12 @@ python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 �
 | 项 | 值 |
 | --- | --- |
 | 迁移 head | `0006` |
+| 静态检查 | ruff 0 问题；mypy 89 个文件 0 错误；格式 110 个文件通过 |
 | 后端测试（SQLite） | 358 passed / 3 skipped |
 | 后端测试（PostgreSQL 16.15） | 360 passed / 1 skipped（含 2 条并发回归） |
 | 前端测试 | 48 passed / 12 files |
 | 已验证环境 | SQLite、PostgreSQL 16.15、生产构建 + 同源代理 |
-| **未验证** | 干净机器上装 PostgreSQL、macOS/Linux 命令、多副本 worker 并发 |
+| **未验证** | 干净机器上装 PostgreSQL、macOS/Linux 命令、多副本 worker 并发、**CI 是否真的绿**（本机无远程仓库） |
 
 ### 三件必须先知道的事
 
@@ -1148,6 +1150,60 @@ uvicorn → /health/ready 200 ready
 
 并发状态的单元测试只能验证不变量，**不能可靠复现竞态**（窗口只有微秒级）；
 真正的复现证据是 `perf/concurrency.py` 修复前的那次运行。这一点在测试 docstring 里写明。
+
+## 5.13 第十七天（2026-10-25）：质量门禁与 CI
+
+### 之前的状态
+
+没有 linter、没有类型检查、没有格式化配置、没有 CI。`pyproject.toml` 里只有 pytest 配置，
+但 `.gitignore` 里留着 `.ruff_cache` 和 `.mypy_cache`——工具被期待过，但没落地。
+
+### 现在
+
+```bat
+python scripts/check.py          :: 7 步，约 105 秒
+python scripts/check.py --fast   :: 只跑静态部分，约 3 秒
+```
+
+CI 的三个必需 job 调用同一个脚本，所以本地和 CI 不会漂移：
+
+| Job | 命令 |
+| --- | --- |
+| `backend` | `scripts/check.py --backend-only` |
+| `frontend` | `scripts/check.py --frontend-only` |
+| `postgres` | 全量测试 + `tests/test_migrations.py` + `alembic upgrade head` + `alembic check` |
+
+第四个 job `optional-real-model` 只在 `workflow_dispatch` 时运行，读 `secrets.LLM_API_KEY`，
+没有密钥就跳过而不是失败。它不在必需检查里。
+
+### 一次性还清的债
+
+| 项 | 数量 | 处理 |
+| --- | --- | --- |
+| ruff 告警 | 185 → 0 | 140 条自动修，其余手工；`B008`（FastAPI `Depends`）和 `RUF001`（中文全角标点）显式忽略并注明理由 |
+| 格式不一致 | 49 个文件 | `ruff format` 统一，行宽 88 |
+| mypy 错误 | 25 → 0 | 覆盖 `src/` + `tests`，89 个文件 |
+
+### 三条不是"为了过检查"的修改
+
+1. **`agent.py` 的闭包捕获循环变量**（B023）：`round_ms()` 闭包读的是外层 `round_started`，
+   当前代码在同一个迭代内调用所以没出错，但一旦有人在循环结束后调用它就会拿到最后一轮的值。
+   改成把起始时间绑成默认参数。
+2. **`test_agent.py` 里重复定义的 `FailingClient`**（F811）：本地类与 `tests/support`
+   里的完全一样，只是遮蔽了导入。删掉本地的。
+3. **`evaluation/metrics.py` 可能对 `None` 取属性**（union-attr）：`item.report` 是可空的，
+   原代码直接 `.get()`。加了显式跳过。
+
+另外把 `tests/support` 的 `_configured` 从 `dict[str, object]` 换成了 `TypedDict`，
+`test_agent.py` 里 5 处 `execution.result[...]` 前面补了 `assert ... is not None`——
+这些断言在值为 None 时会让测试直接失败并指出位置，比 `AttributeError` 好读。
+
+### 没有做的
+
+- **没有加 pre-commit**：需要额外安装钩子，而 `scripts/check.py --fast` 已经够快。
+- **没有把前端纳入 mypy**：前端是 TypeScript，`tsc --noEmit` 由 `npm run build` 覆盖。
+- **CI 没有在本机跑过**：本机没有远程仓库、没有 Actions runner。
+  工作流用 PyYAML 校验过结构，命令与本地脚本一致，但"CI 真的绿了"这件事**没有验证**。
 
 ## 6. 环境准备、数据库、用户、启动和测试
 

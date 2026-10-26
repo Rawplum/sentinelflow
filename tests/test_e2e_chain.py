@@ -13,7 +13,7 @@ task.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -22,7 +22,7 @@ from support import drain_pending
 
 
 def _failure_events(username: str = "e2e.demo", count: int = 5):
-    base = datetime(2026, 10, 20, 9, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 10, 20, 9, 0, tzinfo=UTC)
     return [
         {
             "event_id": str(uuid.uuid4()),
@@ -115,9 +115,7 @@ def test_core_business_chain(client, admin_user, admin_password, stub_model) -> 
     stub_model.queue_tool_call("get_related_events", {"limit": 5})
     stub_model.queue_findings(cited_event_ids=sorted(evidence_ids)[:2])
 
-    started = client.post(
-        f"/api/v1/alerts/{alert_id}/investigations", headers=auth
-    )
+    started = client.post(f"/api/v1/alerts/{alert_id}/investigations", headers=auth)
     assert started.status_code == 202, started.text
     assert started.json()["status"] == "pending"
     investigation_id = started.json()["id"]
@@ -137,9 +135,7 @@ def test_core_business_chain(client, admin_user, admin_password, stub_model) -> 
     ]
 
     # --- 7. structured report --------------------------------------------
-    report = client.get(
-        f"/api/v1/reports/{investigation['report_id']}", headers=auth
-    )
+    report = client.get(f"/api/v1/reports/{investigation['report_id']}", headers=auth)
     assert report.status_code == 200
     body = report.json()
     assert body["status"] == "draft"
@@ -170,7 +166,10 @@ def test_core_business_chain(client, admin_user, admin_password, stub_model) -> 
     )
 
     # The agent never mutates the alert's own status.
-    assert client.get(f"/api/v1/alerts/{alert_id}", headers=auth).json()["status"] == "open"
+    assert (
+        client.get(f"/api/v1/alerts/{alert_id}", headers=auth).json()["status"]
+        == "open"
+    )
 
     # --- 9. audit trail ---------------------------------------------------
     audit = client.get("/api/v1/audit-logs", params={"limit": 200}, headers=auth)
@@ -210,10 +209,14 @@ def test_reload_returns_the_same_investigation_and_report(
     created = client.post(f"/api/v1/alerts/{alert_id}/investigations", headers=auth)
     investigation_id = created.json()["id"]
     drain_pending()
-    first = client.get(f"/api/v1/investigations/{investigation_id}", headers=auth).json()
+    first = client.get(
+        f"/api/v1/investigations/{investigation_id}", headers=auth
+    ).json()
 
     # Simulate a reload: only the ids are known, everything is re-fetched.
-    second = client.get(f"/api/v1/investigations/{investigation_id}", headers=auth).json()
+    second = client.get(
+        f"/api/v1/investigations/{investigation_id}", headers=auth
+    ).json()
     alert = client.get(f"/api/v1/alerts/{alert_id}", headers=auth).json()
     report = client.get(f"/api/v1/reports/{first['report_id']}", headers=auth).json()
 
@@ -248,8 +251,9 @@ def test_a_new_investigation_is_allowed_after_the_previous_one_finished(
     drain_pending()
     # A citation for a random id fails the run, but the task still terminates.
     assert (
-        client.get(f"/api/v1/investigations/{first.json()['id']}", headers=auth)
-        .json()["status"]
+        client.get(f"/api/v1/investigations/{first.json()['id']}", headers=auth).json()[
+            "status"
+        ]
         == "failed"
     )
 

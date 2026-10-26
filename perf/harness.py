@@ -152,12 +152,12 @@ def _wait_until_ready(server: Server, timeout: float = 60.0) -> None:
             stderr = server.process.stderr.read().decode("utf-8", "replace")[-2000:]
             raise RuntimeError(f"server exited early:\n{stderr}")
         try:
-            with urllib.request.urlopen(  # noqa: S310 - loopback only
+            with urllib.request.urlopen(
                 f"{server.base}/health/ready", timeout=3
             ) as response:
                 if response.status == 200:
                     return
-        except Exception as exc:  # noqa: BLE001 - retried until the deadline
+        except Exception as exc:
             last = exc
         time.sleep(0.2)
     raise RuntimeError(f"server not ready after {timeout}s: {last}")
@@ -257,7 +257,7 @@ class Sample:
             return 0.0
         ordered = sorted(self.latencies_ms)
         # Nearest-rank: the smallest value that covers p of the samples.
-        index = max(0, min(len(ordered) - 1, int(round(p * len(ordered) + 0.5)) - 1))
+        index = max(0, min(len(ordered) - 1, round(p * len(ordered) + 0.5) - 1))
         return ordered[index]
 
     @property

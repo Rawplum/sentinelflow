@@ -19,14 +19,19 @@ from __future__ import annotations
 import argparse
 import json
 import platform
-import sys
 import time
 from datetime import timedelta
 from pathlib import Path
 
 from sqlalchemy import text
 
-from perf.dataset import BASE_TIME, DatasetSpec, generate_events, insert_events, seed_alert
+from perf.dataset import (
+    BASE_TIME,
+    DatasetSpec,
+    generate_events,
+    insert_events,
+    seed_alert,
+)
 from perf.harness import (
     Client,
     Sample,
@@ -140,7 +145,10 @@ def _read_scenarios(client: Client, meta: dict, iterations: int) -> list[Sample]
     run("events:page1", "/api/v1/events?limit=50")
     run("events:deep_page", f"/api/v1/events?limit=50&offset={deep}")
     run("events:filter_outcome", "/api/v1/events?limit=50&outcome=failure")
-    run("events:filter_user", f"/api/v1/events?limit=50&username={meta['sample_username']}")
+    run(
+        "events:filter_user",
+        f"/api/v1/events?limit=50&username={meta['sample_username']}",
+    )
     run("events:keyword", "/api/v1/events?limit=50&q=synthetic")
     # 'Z' rather than '+00:00': a literal '+' in a query string decodes as a
     # space, and the server would reject the timestamp.
@@ -152,7 +160,9 @@ def _read_scenarios(client: Client, meta: dict, iterations: int) -> list[Sample]
     run("alerts:list", "/api/v1/alerts?limit=50")
     run("alerts:filter", "/api/v1/alerts?limit=50&severity=high")
 
-    listing = json.loads(run("alerts:detail_source", "/api/v1/alerts?limit=1", repeat=1))
+    listing = json.loads(
+        run("alerts:detail_source", "/api/v1/alerts?limit=1", repeat=1)
+    )
     alert_id = listing["items"][0]["id"]
     run("alerts:detail", f"/api/v1/alerts/{alert_id}")
     run("alerts:evidence", f"/api/v1/alerts/{alert_id}/evidence?limit=50")
@@ -264,7 +274,9 @@ def run(alerts: int, iterations: int, database: str) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="SentinelFlow performance run")
-    parser.add_argument("--alerts", type=int, default=100, help="number of alert bursts")
+    parser.add_argument(
+        "--alerts", type=int, default=100, help="number of alert bursts"
+    )
     parser.add_argument("--iterations", type=int, default=DEFAULT_ITERATIONS)
     parser.add_argument("--database", default="sentinelflow_perf")
     parser.add_argument(
@@ -280,7 +292,9 @@ def main(argv: list[str] | None = None) -> int:
         f"seed {payload['dataset']['seed']}, "
         f"insert {payload['dataset']['insert_seconds']}s"
     )
-    print(f"python {payload['environment']['python']} on {payload['environment']['platform']}")
+    print(
+        f"python {payload['environment']['python']} on {payload['environment']['platform']}"
+    )
     print()
     print(_format_from_payload(payload))
 

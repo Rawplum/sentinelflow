@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
@@ -11,18 +11,20 @@ from sentinelflow.models.alert import Alert
 from sentinelflow.models.security_event import SecurityEvent
 
 
-def test_full_import_detection_report_flow(admin_client, failure_batch, event_factory) -> None:
+def test_full_import_detection_report_flow(
+    admin_client, failure_batch, event_factory
+) -> None:
     failures = failure_batch(count=5)
     success = event_factory(
         event_id=uuid.uuid4(),
-        timestamp=datetime(2026, 10, 19, 9, 5, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 10, 19, 9, 5, tzinfo=UTC),
         outcome="success",
         raw_message="synthetic successful login",
     )
     failure_ids = {event["event_id"] for event in failures}
 
     imported = admin_client.post(
-        "/api/v1/events/import", json={"events": failures + [success]}
+        "/api/v1/events/import", json={"events": [*failures, success]}
     )
     detection = admin_client.post("/api/v1/detections/run")
     alerts = admin_client.get("/api/v1/alerts")
@@ -105,7 +107,7 @@ def test_existing_alert_is_not_duplicated_when_new_events_arrive(
 
     extra = event_factory(
         event_id=uuid.uuid4(),
-        timestamp=datetime(2026, 10, 19, 9, 4, 30, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 10, 19, 9, 4, 30, tzinfo=UTC),
     )
     admin_client.post("/api/v1/events/import", json={"events": [extra]})
     second = admin_client.post("/api/v1/detections/run")
@@ -115,13 +117,11 @@ def test_existing_alert_is_not_duplicated_when_new_events_arrive(
     assert admin_client.get("/api/v1/alerts").json()["total"] == 1
 
 
-def test_new_separate_burst_creates_a_second_alert(
-    admin_client, failure_batch
-) -> None:
+def test_new_separate_burst_creates_a_second_alert(admin_client, failure_batch) -> None:
     first_burst = failure_batch(count=5)
     second_burst = failure_batch(
         count=5,
-        start=datetime(2026, 10, 19, 10, 0, tzinfo=timezone.utc),
+        start=datetime(2026, 10, 19, 10, 0, tzinfo=UTC),
     )
     admin_client.post(
         "/api/v1/events/import",
@@ -147,9 +147,7 @@ def test_no_matching_events_returns_zero_counts(admin_client, failure_batch) -> 
     assert admin_client.get("/api/v1/alerts").json()["total"] == 0
 
 
-def test_different_users_and_ips_are_not_merged(
-    admin_client, failure_batch
-) -> None:
+def test_different_users_and_ips_are_not_merged(admin_client, failure_batch) -> None:
     first = failure_batch(count=4, username="alice.demo", source_ip="198.51.100.10")
     second = failure_batch(count=4, username="bob.demo", source_ip="203.0.113.20")
     admin_client.post("/api/v1/events/import", json={"events": first + second})
@@ -199,9 +197,7 @@ def test_database_error_returns_generic_500(admin_token) -> None:
     app = create_app()
     app.dependency_overrides[get_db] = broken_db
     with TestClient(app, raise_server_exceptions=False) as admin_client:
-        admin_client.headers.update(
-            {"Authorization": f"Bearer {admin_token}"}
-        )
+        admin_client.headers.update({"Authorization": f"Bearer {admin_token}"})
         response = admin_client.get("/api/v1/events")
 
     assert response.status_code == 500

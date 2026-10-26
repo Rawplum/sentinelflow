@@ -11,10 +11,8 @@ control; the whitelist, the schema and the permission check are.
 from __future__ import annotations
 
 import json
-import re
 import time
 import uuid
-from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -29,11 +27,8 @@ from sentinelflow.ai.tools import (
     tool_definitions,
 )
 from sentinelflow.core.config import get_settings
-from sentinelflow.core.time import utcnow
 from sentinelflow.models.investigation import Investigation
-
 from support import ScriptedClient, evidence_ids, findings, install, run_via_api
-
 
 # --- 1. prompt injection in log content ------------------------------------
 
@@ -66,7 +61,9 @@ def test_injection_in_log_text_cannot_expand_the_tool_set(
             ModelTurn(
                 tool_calls=[
                     ToolCallRequest(
-                        call_id="c1", name="search_events", arguments={"keyword": "IGNORE"}
+                        call_id="c1",
+                        name="search_events",
+                        arguments={"keyword": "IGNORE"},
                     )
                 ]
             ),
@@ -123,9 +120,7 @@ def test_injection_text_is_never_executed_as_an_action(
 # --- 2. analyst cannot escalate -------------------------------------------
 
 
-def test_analyst_cannot_start_an_investigation(
-    analyst_client, alert_factory
-) -> None:
+def test_analyst_cannot_start_an_investigation(analyst_client, alert_factory) -> None:
     alert_id = alert_factory()
     response = analyst_client.post(f"/api/v1/alerts/{alert_id}/investigations")
     assert response.status_code == 403
@@ -201,6 +196,7 @@ def test_tool_results_never_include_another_alerts_events(
             timeout_seconds=5,
         )
 
+    assert execution.result is not None
     assert {item["username"] for item in execution.result["events"]} == {"alice.demo"}
 
 
@@ -468,9 +464,7 @@ def test_runtime_ceiling_stops_a_slow_run(
             time.sleep(0.25)
             return ModelTurn(
                 tool_calls=[
-                    ToolCallRequest(
-                        call_id="c", name="get_alert_details", arguments={}
-                    )
+                    ToolCallRequest(call_id="c", name="get_alert_details", arguments={})
                 ]
             )
 
@@ -515,9 +509,7 @@ def test_invalid_lease_configuration_is_rejected(monkeypatch) -> None:
 # --- 10. no unbounded tool loops or retries --------------------------------
 
 
-def test_tool_calls_are_capped(
-    app, admin_client, alert_factory, monkeypatch
-) -> None:
+def test_tool_calls_are_capped(app, admin_client, alert_factory, monkeypatch) -> None:
     monkeypatch.setenv("AGENT_MAX_TOOL_CALLS", "2")
     get_settings.cache_clear()
     alert_id = alert_factory()
@@ -561,6 +553,7 @@ def test_retries_are_bounded(
         investigation = create_investigation(
             session, alert_id, user=user, client=client
         )
+        assert investigation is not None
         investigation.max_attempts = 2
         session.commit()
         investigation_id = investigation.id

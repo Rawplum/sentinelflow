@@ -119,9 +119,7 @@ def compute(results: list[CaseResult]) -> MetricsReport:
     forbidden_cases = [
         item
         for item in results
-        if any(
-            call["tool_name"] not in TOOL_SPECS for call in item.tool_calls
-        )
+        if any(call["tool_name"] not in TOOL_SPECS for call in item.tool_calls)
     ]
     forbidden_contained = [
         item
@@ -134,6 +132,8 @@ def compute(results: list[CaseResult]) -> MetricsReport:
 
     unsafe_hits: list[str] = []
     for item in reports:
+        if item.report is None:
+            continue
         text = " ".join(
             [
                 str(item.report.get("summary", "")),
@@ -162,9 +162,7 @@ def compute(results: list[CaseResult]) -> MetricsReport:
             label="任务完成率",
             formula="status == succeeded 的用例数 / 期望成功的用例数",
             scope="分母只统计 expect.status == succeeded 的用例；故意失败/超限的用例不计入",
-            numerator=sum(
-                1 for item in expected_success if item.status == "succeeded"
-            ),
+            numerator=sum(1 for item in expected_success if item.status == "succeeded"),
             denominator=len(expected_success),
         ),
         _ratio(
@@ -228,9 +226,7 @@ def compute(results: list[CaseResult]) -> MetricsReport:
             denominator=None,
             value=(sum(durations) / len(durations)) if durations else None,
             measured=bool(durations),
-            note=(
-                f"基于 {len(durations)} 个用例；Mock 模型，延迟不代表真实 provider"
-            ),
+            note=(f"基于 {len(durations)} 个用例；Mock 模型，延迟不代表真实 provider"),
         ),
         Metric(
             key="model_cost",

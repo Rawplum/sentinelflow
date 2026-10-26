@@ -324,7 +324,7 @@ def execute_investigation(
             tool_timeout_seconds=tool_timeout_seconds,
             max_runtime_seconds=get_settings().agent_max_runtime_seconds,
         )
-    except Exception as exc:  # noqa: BLE001 - a crash must still terminate the task
+    except Exception as exc:
         # Never leak the message: it may contain provider details.
         terminate_investigation(
             session,
@@ -351,18 +351,18 @@ def execute_investigation(
             )
         )
 
-    for record in result.tool_calls:
+    for call in result.tool_calls:
         session.add(
             InvestigationToolCall(
                 investigation_id=investigation.id,
-                sequence=record.sequence,
+                sequence=call.sequence,
                 attempt_index=investigation.attempt_count,
-                tool_name=record.tool_name,
-                arguments=record.arguments,
-                status=record.status,
-                result_summary=record.result_summary,
-                error=record.error,
-                duration_ms=record.duration_ms,
+                tool_name=call.tool_name,
+                arguments=call.arguments,
+                status=call.status,
+                result_summary=call.result_summary,
+                error=call.error,
+                duration_ms=call.duration_ms,
             )
         )
 

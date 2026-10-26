@@ -79,9 +79,13 @@ def test_filters_keep_pagination_consistent(admin_client, alert_factory) -> None
 
 
 def test_invalid_filter_value_is_rejected(admin_client) -> None:
-    assert admin_client.get("/api/v1/alerts", params={"status": "nope"}).status_code == 422
     assert (
-        admin_client.get("/api/v1/alerts", params={"severity": "apocalyptic"}).status_code
+        admin_client.get("/api/v1/alerts", params={"status": "nope"}).status_code == 422
+    )
+    assert (
+        admin_client.get(
+            "/api/v1/alerts", params={"severity": "apocalyptic"}
+        ).status_code
         == 422
     )
 

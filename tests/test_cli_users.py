@@ -55,14 +55,13 @@ def test_duplicate_user_is_rejected(session_factory) -> None:
             role=UserRole.ANALYST,
         )
 
-    with session_factory() as session:
-        with pytest.raises(UserAlreadyExistsError):
-            create_user(
-                session,
-                username="duplicate.user",
-                password=PASSWORD,
-                role=UserRole.ANALYST,
-            )
+    with session_factory() as session, pytest.raises(UserAlreadyExistsError):
+        create_user(
+            session,
+            username="duplicate.user",
+            password=PASSWORD,
+            role=UserRole.ANALYST,
+        )
 
 
 @pytest.mark.parametrize(
@@ -77,29 +76,22 @@ def test_duplicate_user_is_rejected(session_factory) -> None:
 def test_invalid_user_input_is_rejected(
     session_factory, username, password, role
 ) -> None:
-    with session_factory() as session:
-        with pytest.raises(ValueError):
-            create_user(
-                session,
-                username=username,
-                password=password,
-                role=role,
-            )
+    with session_factory() as session, pytest.raises(ValueError):
+        create_user(
+            session,
+            username=username,
+            password=password,
+            role=role,
+        )
 
 
 def test_cli_main_creates_user_without_printing_password(
     monkeypatch, session_factory, capsys
 ) -> None:
-    monkeypatch.setattr(
-        create_user_cli, "get_session_factory", lambda: session_factory
-    )
-    monkeypatch.setattr(
-        create_user_cli.getpass, "getpass", lambda prompt="": PASSWORD
-    )
+    monkeypatch.setattr(create_user_cli, "get_session_factory", lambda: session_factory)
+    monkeypatch.setattr(create_user_cli.getpass, "getpass", lambda prompt="": PASSWORD)
 
-    exit_code = create_user_cli.main(
-        ["--username", "cli.admin", "--role", "admin"]
-    )
+    exit_code = create_user_cli.main(["--username", "cli.admin", "--role", "admin"])
 
     captured = capsys.readouterr()
     assert exit_code == 0
@@ -107,9 +99,7 @@ def test_cli_main_creates_user_without_printing_password(
     assert PASSWORD not in captured.err
 
     with session_factory() as session:
-        user = session.scalar(
-            select(User).where(User.username == "cli.admin")
-        )
+        user = session.scalar(select(User).where(User.username == "cli.admin"))
         assert user is not None
         assert user.role == "admin"
 
@@ -117,18 +107,9 @@ def test_cli_main_creates_user_without_printing_password(
 def test_cli_created_user_can_login(
     monkeypatch, session_factory, client, capsys
 ) -> None:
-    monkeypatch.setattr(
-        create_user_cli, "get_session_factory", lambda: session_factory
-    )
-    monkeypatch.setattr(
-        create_user_cli.getpass, "getpass", lambda prompt="": PASSWORD
-    )
-    assert (
-        create_user_cli.main(
-            ["--username", "cli.analyst", "--role", "analyst"]
-        )
-        == 0
-    )
+    monkeypatch.setattr(create_user_cli, "get_session_factory", lambda: session_factory)
+    monkeypatch.setattr(create_user_cli.getpass, "getpass", lambda prompt="": PASSWORD)
+    assert create_user_cli.main(["--username", "cli.analyst", "--role", "analyst"]) == 0
     capsys.readouterr()
 
     response = client.post(
@@ -143,9 +124,7 @@ def test_cli_created_user_can_login(
 def test_cli_password_mismatch_does_not_create_user(
     monkeypatch, session_factory, capsys
 ) -> None:
-    monkeypatch.setattr(
-        create_user_cli, "get_session_factory", lambda: session_factory
-    )
+    monkeypatch.setattr(create_user_cli, "get_session_factory", lambda: session_factory)
     values = iter(["first-password-123", "second-password-123"])
     monkeypatch.setattr(
         create_user_cli.getpass, "getpass", lambda prompt="": next(values)
@@ -158,17 +137,12 @@ def test_cli_password_mismatch_does_not_create_user(
     assert exit_code == 1
     with session_factory() as session:
         assert (
-            session.scalar(
-                select(User).where(User.username == "mismatch.user")
-            )
-            is None
+            session.scalar(select(User).where(User.username == "mismatch.user")) is None
         )
 
 
 def test_cli_does_not_accept_password_argument(monkeypatch, session_factory) -> None:
-    monkeypatch.setattr(
-        create_user_cli, "get_session_factory", lambda: session_factory
-    )
+    monkeypatch.setattr(create_user_cli, "get_session_factory", lambda: session_factory)
 
     with pytest.raises(SystemExit):
         create_user_cli.main(

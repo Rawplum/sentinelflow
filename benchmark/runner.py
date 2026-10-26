@@ -15,11 +15,19 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import uuid
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
+from benchmark.baselines import (
+    EchoToolClient,
+    run_agent,
+    run_deterministic,
+    run_single_shot,
+)
+from benchmark.dataset import load_cases, seed
+from benchmark.metrics import compute, meets_expectation
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -28,16 +36,6 @@ from sentinelflow.ai.model_client import ModelNotConfiguredError, build_model_cl
 from sentinelflow.core.permissions import UserRole
 from sentinelflow.db.session import Base
 from sentinelflow.services.auth import create_user
-
-from benchmark.baselines import (
-    BaselineResult,
-    EchoToolClient,
-    run_agent,
-    run_deterministic,
-    run_single_shot,
-)
-from benchmark.dataset import load_cases, seed
-from benchmark.metrics import compute, meets_expectation
 
 DEFAULT_REPORT = Path(__file__).resolve().parent / "last_report.json"
 
@@ -109,17 +107,21 @@ def run(baselines: list[str], model_mode: str) -> dict:
                     if name == "deterministic":
                         result = run_deterministic(session, alert)
                     elif name == "single_shot":
-                        result = run_single_shot(_client_for(model_mode), session, alert)
+                        result = run_single_shot(
+                            _client_for(model_mode), session, alert
+                        )
                     else:
-                        result = run_agent(_client_for(model_mode), session, alert, user)
+                        result = run_agent(
+                            _client_for(model_mode), session, alert, user
+                        )
                     result.case_id = case.id
                     result.scenario = case.scenario
                     results[name].append((case, result))
     finally:
         engine.dispose()
 
-    payload = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+    payload: dict[str, Any] = {
+        "generated_at": datetime.now(UTC).isoformat(),
         "mode": (
             "real"
             if model_mode == "real"
@@ -191,7 +193,9 @@ def _print(payload: dict) -> None:
         print(f"== {name} ({block['applicable_cases']} applicable cases)")
         if block.get("caveat"):
             print(f"   caveat: {block['caveat']}")
-        print(f"  {'case':32} {'scenario':14} {'answer':6} {'risk':9} {'cite':6} {'expect':6}")
+        print(
+            f"  {'case':32} {'scenario':14} {'answer':6} {'risk':9} {'cite':6} {'expect':6}"
+        )
         for row in block["cases"]:
             print(
                 f"  {row['id']:32} {row['scenario']:14} "
@@ -273,14 +277,14 @@ def _print_stability(stability: dict, runs: int) -> None:
 
     for name, metrics in stability["rates"].items():
         spread = [
-            (key, values)
-            for key, values in metrics.items()
-            if len(set(values)) > 1
+            (key, values) for key, values in metrics.items() if len(set(values)) > 1
         ]
         if not spread:
             continue
         for key, values in spread:
-            shown = ", ".join(f"{value:.0%}" if value <= 1 else f"{value:.0f}" for value in values)
+            shown = ", ".join(
+                f"{value:.0%}" if value <= 1 else f"{value:.0f}" for value in values
+            )
             print(f"  {name}/{key}: {shown}")
 
 

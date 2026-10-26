@@ -9,11 +9,65 @@
 - 测试数据全部为合成数据，不含真实日志、账号、密码或凭据。
 - 不为通过测试而删除用例或放宽断言。
 
-## 2. 当前测试结果
+## 2. 怎么跑
 
-### SQLite（默认，快速）
+### 2.1 一条命令
 
-运行日期：2026-10-24（第五天）。环境：Windows，Python 3.11.4，pytest 8.4.2。
+```bat
+python scripts/check.py
+```
+
+CI 跑的是同一条命令，所以"本地过了"和"CI 过了"是一回事。
+
+| 命令 | 做什么 | 耗时（本机） |
+| --- | --- | --- |
+| `python scripts/check.py` | 全部 7 步 | 约 105 秒 |
+| `python scripts/check.py --fast` | 格式 + 静态检查 + 类型 | 约 3 秒 |
+| `python scripts/check.py --backend-only` | 不碰 npm | 约 78 秒 |
+| `python scripts/check.py --frontend-only` | 只跑前端三步 | 约 21 秒 |
+| `python scripts/check.py --with-db` | 额外 `alembic check` | 需要数据库 |
+| `python scripts/check.py --list` | 只列步骤 | — |
+
+脚本按顺序跑，失败时打印该步输出并继续跑后面的（加 `--fail-fast` 可以遇错即停），
+最后给一张汇总表。退出码非 0 当且仅当有步骤失败。
+
+### 2.2 单独跑某一项
+
+| 检查 | 命令 | 覆盖范围 |
+| --- | --- | --- |
+| 格式 | `ruff format --check src tests benchmark perf evaluation migrations` | 110 个文件 |
+| 静态检查 | `ruff check src tests benchmark perf evaluation migrations` | 同上 |
+| 类型 | `mypy` | `src/sentinelflow` + `tests`，89 个文件 |
+| 后端测试 | `pytest -q` | `tests/` |
+| 前端 lint | `cd frontend && npm run lint` | `src/` |
+| 前端测试 | `cd frontend && npm test` | 12 个测试文件 |
+| 前端构建 | `cd frontend && npm run build` | 生产产物 |
+| 迁移一致性 | `alembic check` | 模型与迁移是否漂移 |
+
+工具链版本：ruff 0.17、mypy 2.4、pytest 8.4、vitest（见 `frontend/package.json`）。
+ruff 与 mypy 的配置都在 `pyproject.toml`，规则集**显式列出**而不是依赖默认值——
+工具默认规则会随版本变化，那样"昨天通过今天失败"就不是代码的问题。
+
+### 2.3 必需检查与可选检查
+
+| 检查 | 是否必需 | 依赖 |
+| --- | --- | --- |
+| 格式 / 静态 / 类型 | 必需 | 无 |
+| 后端测试（SQLite） | 必需 | 无 |
+| 前端 lint / 测试 / 构建 | 必需 | Node 22 |
+| 后端测试（PostgreSQL） | 必需（CI 单独 job） | PostgreSQL 16 |
+| 迁移升降级 | 必需（CI 单独 job） | PostgreSQL 16 |
+| 真实模型基准 | **可选** | `LLM_API_KEY` |
+| 真实浏览器 E2E | **可选** | Chromium + 运行中的服务 |
+| 性能与并发实测 | **可选** | PostgreSQL + 数分钟 |
+
+可选检查不参与"能不能合并"的判断，也不需要任何密钥就能跑完必需部分。
+
+### 2.4 当前测试结果
+
+#### SQLite（默认，快速）
+
+运行日期：2026-10-25。环境：Windows，Python 3.11.4，pytest 8.4.2。
 
 ```text
 $ .venv\Scripts\python.exe -m pytest -q
@@ -21,11 +75,15 @@ $ .venv\Scripts\python.exe -m pytest -q
 358 passed, 3 skipped
 ```
 
-跳过的是 `tests/test_migrations.py`，原因是没有设置 `MIGRATION_TEST_DATABASE_URL`。
+跳过的是 3 项：
+
+- `tests/test_migrations.py`（1 项）：没有设置 `MIGRATION_TEST_DATABASE_URL`。
+- `tests/test_concurrency.py`（2 项）：SQLite 忽略 `SELECT ... FOR UPDATE`，
+  既复现不了竞态也证明不了修复，因此只在 PostgreSQL 下执行。skip 理由写在测试里。
 
 > 历史记录：`0002` 时期（2026-10-19）为 `112 passed, 1 skipped`。阶段 A 新增 78 项、阶段 B 新增 27 项、第五天新增 28 项测试，既有 112 项全部继续通过且未修改断言。
 
-### PostgreSQL 16.15（真实数据库，2026-10-25 验证）
+#### PostgreSQL 16.15（真实数据库，2026-10-25 验证）
 
 本机没有 Docker，也没有安装 PostgreSQL。用 EDB 的**免安装二进制包**起一个临时集群：
 数据目录在 `%TEMP%`，不写系统、不注册服务、验证后整目录删除即可。

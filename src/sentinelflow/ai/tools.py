@@ -17,11 +17,13 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.orm import Session
@@ -125,7 +127,9 @@ def _get_alert_details(ctx: ToolContext, _: GetAlertDetailsInput) -> dict[str, A
     }
 
 
-def _get_related_events(ctx: ToolContext, params: GetRelatedEventsInput) -> dict[str, Any]:
+def _get_related_events(
+    ctx: ToolContext, params: GetRelatedEventsInput
+) -> dict[str, Any]:
     rows = load_alert_evidence(
         ctx.session, ctx.alert.id, limit=params.limit, offset=params.offset
     )
@@ -156,9 +160,7 @@ def _search_events(ctx: ToolContext, params: SearchEventsInput) -> dict[str, Any
     statement = evidence_query(ctx.alert.id)
     if params.keyword:
         escaped = (
-            params.keyword.replace("\\", "\\\\")
-            .replace("%", "\\%")
-            .replace("_", "\\_")
+            params.keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         )
         statement = statement.where(
             SecurityEvent.raw_message.ilike(f"%{escaped}%", escape="\\")
@@ -355,7 +357,7 @@ def execute_tool(
             error=f"Tool exceeded {timeout_seconds}s timeout",
             duration_ms=_elapsed_ms(),
         )
-    except Exception as exc:  # noqa: BLE001 - tool failures must not break the run
+    except Exception as exc:
         return ToolExecution(
             status="error",
             result=None,
@@ -386,9 +388,7 @@ def summarize_result(result: dict[str, Any] | None) -> dict[str, Any] | None:
         if key in result:
             summary[key] = result[key]
     if "events" in result and isinstance(result["events"], list):
-        summary["event_ids"] = [
-            item.get("event_id") for item in result["events"][:50]
-        ]
+        summary["event_ids"] = [item.get("event_id") for item in result["events"][:50]]
     if "runbooks" in result and isinstance(result["runbooks"], list):
         summary["runbook_ids"] = [item.get("id") for item in result["runbooks"]]
     return summary
@@ -397,9 +397,7 @@ def summarize_result(result: dict[str, Any] | None) -> dict[str, Any] | None:
 def evidence_event_ids(session: Session, alert_id: uuid.UUID) -> frozenset[uuid.UUID]:
     return frozenset(
         event.event_id
-        for event in load_alert_evidence(
-            session, alert_id, limit=10_000, offset=0
-        )
+        for event in load_alert_evidence(session, alert_id, limit=10_000, offset=0)
     )
 
 
@@ -419,6 +417,6 @@ __all__ = [
     "build_context",
     "execute_tool",
     "summarize_result",
-    "tool_definitions",
     "to_report_evidence",
+    "tool_definitions",
 ]

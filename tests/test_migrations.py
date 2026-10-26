@@ -77,8 +77,7 @@ def test_alembic_upgrade_and_downgrade() -> None:
         assert "ix_security_events_user_ip_occurred_at" in index_names
 
         foreign_tables = {
-            fk["referred_table"]
-            for fk in inspector.get_foreign_keys("alert_events")
+            fk["referred_table"] for fk in inspector.get_foreign_keys("alert_events")
         }
         assert foreign_tables == {"alerts", "security_events"}
 
@@ -105,14 +104,11 @@ def test_alembic_upgrade_and_downgrade() -> None:
         assert "ck_audit_logs_outcome" in audit_checks
 
         audit_foreign_tables = {
-            fk["referred_table"]
-            for fk in inspector.get_foreign_keys("audit_logs")
+            fk["referred_table"] for fk in inspector.get_foreign_keys("audit_logs")
         }
         assert audit_foreign_tables == {"users"}
 
-        audit_indexes = {
-            index["name"] for index in inspector.get_indexes("audit_logs")
-        }
+        audit_indexes = {index["name"] for index in inspector.get_indexes("audit_logs")}
         assert {
             "ix_audit_logs_actor_created_at",
             "ix_audit_logs_action_created_at",
@@ -121,9 +117,7 @@ def test_alembic_upgrade_and_downgrade() -> None:
 
         report_checks = {
             constraint["name"]
-            for constraint in inspector.get_check_constraints(
-                "investigation_reports"
-            )
+            for constraint in inspector.get_check_constraints("investigation_reports")
         }
         assert {
             "ck_investigation_reports_status",
@@ -134,9 +128,7 @@ def test_alembic_upgrade_and_downgrade() -> None:
 
         report_uniques = {
             constraint["name"]
-            for constraint in inspector.get_unique_constraints(
-                "investigation_reports"
-            )
+            for constraint in inspector.get_unique_constraints("investigation_reports")
         }
         assert "uq_investigation_reports_alert_version" in report_uniques
 
@@ -148,9 +140,7 @@ def test_alembic_upgrade_and_downgrade() -> None:
 
         history_checks = {
             constraint["name"]
-            for constraint in inspector.get_check_constraints(
-                "alert_status_history"
-            )
+            for constraint in inspector.get_check_constraints("alert_status_history")
         }
         assert {
             "ck_alert_status_history_to_status",
@@ -174,8 +164,7 @@ def test_alembic_upgrade_and_downgrade() -> None:
         assert "ck_investigations_status" in investigation_checks
 
         investigation_fks = {
-            fk["referred_table"]
-            for fk in inspector.get_foreign_keys("investigations")
+            fk["referred_table"] for fk in inspector.get_foreign_keys("investigations")
         }
         assert investigation_fks == {"alerts", "investigation_reports", "users"}
 
@@ -189,9 +178,7 @@ def test_alembic_upgrade_and_downgrade() -> None:
 
         round_checks = {
             constraint["name"]
-            for constraint in inspector.get_check_constraints(
-                "investigation_rounds"
-            )
+            for constraint in inspector.get_check_constraints("investigation_rounds")
         }
         assert {
             "ck_investigation_rounds_outcome",
@@ -200,15 +187,12 @@ def test_alembic_upgrade_and_downgrade() -> None:
 
         round_uniques = {
             constraint["name"]
-            for constraint in inspector.get_unique_constraints(
-                "investigation_rounds"
-            )
+            for constraint in inspector.get_unique_constraints("investigation_rounds")
         }
         assert "uq_investigation_rounds_attempt_index" in round_uniques
 
         round_columns = {
-            column["name"]
-            for column in inspector.get_columns("investigation_rounds")
+            column["name"] for column in inspector.get_columns("investigation_rounds")
         }
         assert "attempt_index" in round_columns
         tool_call_columns = {
@@ -256,9 +240,7 @@ def test_alembic_upgrade_and_downgrade() -> None:
         assert "error_code" not in columns_after_0006
         round_uniques_after = {
             constraint["name"]
-            for constraint in inspector.get_unique_constraints(
-                "investigation_rounds"
-            )
+            for constraint in inspector.get_unique_constraints("investigation_rounds")
         }
         assert "uq_investigation_rounds_index" in round_uniques_after
         command.upgrade(config, "head")

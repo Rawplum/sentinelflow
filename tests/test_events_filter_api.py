@@ -1,6 +1,6 @@
 """Security event filter and keyword search tests."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -10,7 +10,7 @@ def seeded_events(admin_client, event_factory):
     events = [
         event_factory(
             event_id="11111111-1111-4111-8111-111111111111",
-            timestamp=datetime(2026, 10, 19, 9, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 10, 19, 9, 0, tzinfo=UTC),
             event_type="authentication",
             username="alice.demo",
             source_ip="198.51.100.10",
@@ -20,7 +20,7 @@ def seeded_events(admin_client, event_factory):
         ),
         event_factory(
             event_id="22222222-2222-4222-8222-222222222222",
-            timestamp=datetime(2026, 10, 19, 10, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 10, 19, 10, 0, tzinfo=UTC),
             event_type="authentication",
             username="bob.demo",
             source_ip="203.0.113.20",
@@ -30,7 +30,7 @@ def seeded_events(admin_client, event_factory):
         ),
         event_factory(
             event_id="33333333-3333-4333-8333-333333333333",
-            timestamp=datetime(2026, 10, 19, 11, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 10, 19, 11, 0, tzinfo=UTC),
             event_type="file",
             username="carol.demo",
             source_ip="192.0.2.30",
@@ -196,8 +196,6 @@ def test_raw_message_included_by_default(admin_client, seeded_events) -> None:
 
 
 def test_analyst_can_filter_events(analyst_client, seeded_events) -> None:
-    body = analyst_client.get(
-        "/api/v1/events", params={"event_type": "file"}
-    ).json()
+    body = analyst_client.get("/api/v1/events", params={"event_type": "file"}).json()
 
     assert body["total"] == 1

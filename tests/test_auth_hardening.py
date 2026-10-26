@@ -1,6 +1,6 @@
 """Login throttling, token revocation and logout tests."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from fastapi.testclient import TestClient
@@ -50,9 +50,7 @@ def test_successful_login_resets_the_counter(
     assert _login(client, admin_user.username, admin_password).status_code == 200
 
     for _ in range(4):
-        assert (
-            _login(client, admin_user.username, "wrong-password").status_code == 401
-        )
+        assert _login(client, admin_user.username, "wrong-password").status_code == 401
 
 
 def test_throttling_is_per_subject(
@@ -101,9 +99,7 @@ def test_revoked_token_cannot_access_protected_api(admin_client) -> None:
     assert admin_client.get("/api/v1/audit-logs").status_code == 401
 
 
-def test_logout_stores_only_the_token_identifier(
-    admin_client, session_factory
-) -> None:
+def test_logout_stores_only_the_token_identifier(admin_client, session_factory) -> None:
     token = admin_client.headers["Authorization"].split(" ", 1)[1]
     admin_client.post("/api/v1/auth/logout")
 
@@ -169,9 +165,7 @@ def test_revoking_one_token_does_not_affect_another(
     )
 
 
-def test_token_carries_unique_identifier(
-    client, admin_user, admin_password
-) -> None:
+def test_token_carries_unique_identifier(client, admin_user, admin_password) -> None:
     token = _login(client, admin_user.username, admin_password).json()["access_token"]
     payload = jwt.decode(token, options={"verify_signature": False})
 
@@ -181,7 +175,7 @@ def test_token_carries_unique_identifier(
 
 def test_token_without_jti_is_rejected(client, admin_user) -> None:
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": str(admin_user.id),
         "role": "admin",
@@ -200,7 +194,9 @@ def test_token_without_jti_is_rejected(client, admin_user) -> None:
     assert response.status_code == 401
 
 
-def test_throttle_table_stores_no_plaintext(client, admin_user, session_factory) -> None:
+def test_throttle_table_stores_no_plaintext(
+    client, admin_user, session_factory
+) -> None:
     from sentinelflow.models.login_attempt import LoginAttempt
 
     _login(client, admin_user.username, "wrong-password")

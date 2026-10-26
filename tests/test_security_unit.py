@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import jwt
@@ -80,7 +80,7 @@ def test_token_round_trip() -> None:
 
 def _encode_token(**overrides) -> str:
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": str(uuid.uuid4()),
         "role": "admin",
@@ -91,6 +91,7 @@ def _encode_token(**overrides) -> str:
         "type": "access",
     }
     payload.update(overrides)
+    assert settings.jwt_secret is not None, "the test fixture must set JWT_SECRET"
     return jwt.encode(
         payload,
         settings.jwt_secret.get_secret_value(),
@@ -99,7 +100,7 @@ def _encode_token(**overrides) -> str:
 
 
 def test_expired_token_is_rejected() -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     token = _encode_token(
         iat=now - timedelta(minutes=10),
         exp=now - timedelta(minutes=5),
@@ -115,8 +116,8 @@ def test_wrong_signature_is_rejected() -> None:
         {
             "sub": str(uuid.uuid4()),
             "role": "admin",
-            "iat": datetime.now(timezone.utc),
-            "exp": datetime.now(timezone.utc) + timedelta(minutes=30),
+            "iat": datetime.now(UTC),
+            "exp": datetime.now(UTC) + timedelta(minutes=30),
             "iss": settings.jwt_issuer,
             "aud": settings.jwt_audience,
             "type": "access",

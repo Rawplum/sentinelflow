@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,7 @@ from sentinelflow.models.alert import Alert
 from sentinelflow.models.security_event import SecurityEvent
 
 CASES_PATH = Path(__file__).resolve().parent / "cases.json"
-BASE_TIME = datetime(2026, 3, 2, 9, 0, tzinfo=timezone.utc)
+BASE_TIME = datetime(2026, 3, 2, 9, 0, tzinfo=UTC)
 
 
 @dataclass(frozen=True)
@@ -70,8 +70,8 @@ def seed(session: Session, case: Case) -> Alert:
                 # Per-event overrides exist so a case can spray across accounts
                 # or lose the source IP, which the alert-level value cannot
                 # express.
-                username=spec["username"] if "username" in spec else username,
-                source_ip=spec["source_ip"] if "source_ip" in spec else source_ip,
+                username=spec.get("username", username),
+                source_ip=spec.get("source_ip", source_ip),
                 asset_id=spec.get("asset_id", "asset-bench"),
                 action=spec.get("action", "login"),
                 outcome=spec.get("outcome", "failure"),

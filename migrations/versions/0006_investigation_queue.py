@@ -15,7 +15,6 @@ alter it in place; SQLite cannot, so it goes through batch mode there.
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-
 from alembic import op
 
 revision: str = "0006"
@@ -92,9 +91,7 @@ def upgrade() -> None:
                 ["investigation_id", "attempt_index", "round_index"],
             )
     else:
-        op.drop_constraint(
-            "ck_investigations_status", "investigations", type_="check"
-        )
+        op.drop_constraint("ck_investigations_status", "investigations", type_="check")
         op.create_check_constraint(
             "ck_investigations_status",
             "investigations",
@@ -135,9 +132,7 @@ def downgrade() -> None:
                 ["investigation_id", "round_index"],
             )
     else:
-        op.drop_constraint(
-            "ck_investigations_status", "investigations", type_="check"
-        )
+        op.drop_constraint("ck_investigations_status", "investigations", type_="check")
         op.create_check_constraint(
             "ck_investigations_status",
             "investigations",

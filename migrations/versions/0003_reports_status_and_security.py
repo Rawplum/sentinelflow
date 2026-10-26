@@ -11,7 +11,6 @@ so reports, alerts and audit data created by 0001/0002 stay valid.
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-
 from alembic import op
 
 revision: str = "0003"

@@ -1,9 +1,8 @@
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
-import pytest
 from sqlalchemy import select
 
 from sentinelflow.core.config import get_settings
@@ -79,16 +78,12 @@ def test_me_returns_current_user(admin_client) -> None:
     assert "password_hash" not in response.text
 
 
-def test_missing_token_rejected_on_business_routes(
-    client, event_factory
-) -> None:
+def test_missing_token_rejected_on_business_routes(client, event_factory) -> None:
     event = event_factory()
     assert client.get("/api/v1/events").status_code == 401
     assert client.get("/api/v1/alerts").status_code == 401
     assert client.get("/api/v1/audit-logs").status_code == 401
-    assert (
-        client.get(f"/api/v1/alerts/{uuid.uuid4()}/report").status_code == 401
-    )
+    assert client.get(f"/api/v1/alerts/{uuid.uuid4()}/report").status_code == 401
     assert (
         client.post("/api/v1/events/import", json={"events": [event]}).status_code
         == 401
@@ -107,7 +102,7 @@ def test_invalid_token_rejected(client) -> None:
 
 def _encode_token(secret: str, **overrides) -> str:
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": str(uuid.uuid4()),
         "role": "admin",
@@ -123,7 +118,8 @@ def _encode_token(secret: str, **overrides) -> str:
 
 def test_expired_token_rejected(client) -> None:
     settings = get_settings()
-    now = datetime.now(timezone.utc)
+    assert settings.jwt_secret is not None, "the test fixture must set JWT_SECRET"
+    now = datetime.now(UTC)
     token = _encode_token(
         settings.jwt_secret.get_secret_value(),
         iat=now - timedelta(minutes=10),
@@ -149,9 +145,7 @@ def test_wrong_signature_rejected(client) -> None:
     assert response.status_code == 401
 
 
-def test_inactive_user_token_rejected(
-    client, inactive_user, db_session
-) -> None:
+def test_inactive_user_token_rejected(client, inactive_user, db_session) -> None:
     token, _ = create_access_token(inactive_user)
 
     response = client.get(
@@ -192,16 +186,12 @@ def test_role_change_is_effective_immediately(
     assert audit.resource_id == "detections:run"
 
 
-def test_login_success_and_failure_are_audited(
-    client, admin_user, db_session
-) -> None:
+def test_login_success_and_failure_are_audited(client, admin_user, db_session) -> None:
     assert _login(client, admin_user.username, ADMIN_PASSWORD).status_code == 200
     assert _login(client, admin_user.username, "wrong-password-123").status_code == 401
 
     db_session.expire_all()
-    success = db_session.scalar(
-        select(AuditLog).where(AuditLog.action == "auth.login")
-    )
+    success = db_session.scalar(select(AuditLog).where(AuditLog.action == "auth.login"))
     failure = db_session.scalar(
         select(AuditLog).where(AuditLog.action == "auth.login_failed")
     )
@@ -230,9 +220,7 @@ def test_login_validation_error_does_not_echo_password(client) -> None:
     assert '"input"' not in response.text
 
 
-def test_auth_not_configured_returns_503(
-    monkeypatch, client, admin_user
-) -> None:
+def test_auth_not_configured_returns_503(monkeypatch, client, admin_user) -> None:
     monkeypatch.delenv("JWT_SECRET", raising=False)
     get_settings.cache_clear()
     try:

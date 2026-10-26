@@ -16,15 +16,17 @@ Both are silent: the report looks well formed and the numbers are plausible.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sentinelflow.models.alert import Alert, alert_events
 from sentinelflow.models.security_event import SecurityEvent
 
-BASE = datetime(2026, 10, 19, 9, 0, tzinfo=timezone.utc)
+BASE = datetime(2026, 10, 19, 9, 0, tzinfo=UTC)
 
 
-def test_truncated_report_states_the_whole_alert_window(admin_client, alert_factory) -> None:
+def test_truncated_report_states_the_whole_alert_window(
+    admin_client, alert_factory
+) -> None:
     """The default report for a large alert used to end at the cap, not the end."""
     alert_id = alert_factory(evidence_count=150)
 
@@ -38,7 +40,9 @@ def test_truncated_report_states_the_whole_alert_window(admin_client, alert_fact
     assert last in body["summary"], body["summary"]
 
 
-def test_offset_report_still_states_the_whole_alert_window(admin_client, alert_factory) -> None:
+def test_offset_report_still_states_the_whole_alert_window(
+    admin_client, alert_factory
+) -> None:
     alert_id = alert_factory(evidence_count=6)
 
     body = admin_client.get(
@@ -89,10 +93,7 @@ def test_successful_logins_are_not_counted_as_failed_attempts(
         session.flush()
         session.execute(
             alert_events.insert(),
-            [
-                {"alert_id": alert.id, "event_id": event.event_id}
-                for event in events
-            ],
+            [{"alert_id": alert.id, "event_id": event.event_id} for event in events],
         )
         session.commit()
         alert_id = alert.id

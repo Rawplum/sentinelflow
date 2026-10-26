@@ -1,7 +1,7 @@
 """Security event request and response schemas."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import (
@@ -37,7 +37,7 @@ class SecurityEventCreate(BaseModel):
     @field_validator("timestamp")
     @classmethod
     def normalize_timestamp(cls, value: datetime) -> datetime:
-        return value.astimezone(timezone.utc)
+        return value.astimezone(UTC)
 
 
 class EventImportRequest(BaseModel):

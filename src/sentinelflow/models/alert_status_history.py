@@ -54,9 +54,7 @@ class AlertStatusHistory(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    changed_by_username: Mapped[str | None] = mapped_column(
-        String(64), nullable=True
-    )
+    changed_by_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

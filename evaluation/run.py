@@ -14,7 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from evaluation.harness import Harness, load_cases
@@ -74,8 +74,12 @@ def _verdict_signature(results) -> list[tuple]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run the SentinelFlow agent evaluation suite.")
-    parser.add_argument("--case", action="append", dest="cases", help="run only these case ids")
+    parser = argparse.ArgumentParser(
+        description="Run the SentinelFlow agent evaluation suite."
+    )
+    parser.add_argument(
+        "--case", action="append", dest="cases", help="run only these case ids"
+    )
     parser.add_argument("--json", dest="json_path", default=str(DEFAULT_REPORT))
     parser.add_argument(
         "--repeat",
@@ -126,12 +130,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         if not stable:
             for index, sig in enumerate(signatures[1:], start=2):
-                for expected, actual in zip(signatures[0], sig):
+                # Lengths can differ when one run errored on a case.
+                for expected, actual in zip(signatures[0], sig, strict=False):
                     if expected != actual:
                         print(f"  run {index} differs: {expected} != {actual}")
 
     payload = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "model": "scripted-mock",
         "disclaimer": (
             "Runs against a scripted model client. Measures orchestration and "

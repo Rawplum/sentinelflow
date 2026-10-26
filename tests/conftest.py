@@ -5,11 +5,12 @@ import secrets
 import threading
 import uuid
 from collections.abc import Iterator
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event as sqlalchemy_event
+from sqlalchemy import create_engine
+from sqlalchemy import event as sqlalchemy_event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -22,7 +23,6 @@ from sentinelflow.main import create_app
 from sentinelflow.models.alert import Alert
 from sentinelflow.models.security_event import SecurityEvent
 from sentinelflow.models.user import User
-
 from support.stub_provider import StubProvider
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
@@ -216,18 +216,14 @@ def analyst_token(client, analyst_user) -> str:
 @pytest.fixture()
 def admin_client(app, admin_token) -> Iterator[TestClient]:
     with TestClient(app) as test_client:
-        test_client.headers.update(
-            {"Authorization": f"Bearer {admin_token}"}
-        )
+        test_client.headers.update({"Authorization": f"Bearer {admin_token}"})
         yield test_client
 
 
 @pytest.fixture()
 def analyst_client(app, analyst_token) -> Iterator[TestClient]:
     with TestClient(app) as test_client:
-        test_client.headers.update(
-            {"Authorization": f"Bearer {analyst_token}"}
-        )
+        test_client.headers.update({"Authorization": f"Bearer {analyst_token}"})
         yield test_client
 
 
@@ -255,7 +251,7 @@ def alert_factory():
         source_ip: str = "198.51.100.10",
         rule_id: str = "AUTH-001",
     ) -> uuid.UUID:
-        base = datetime(2026, 10, 19, 9, 0, tzinfo=timezone.utc)
+        base = datetime(2026, 10, 19, 9, 0, tzinfo=UTC)
         with SessionFactory() as session:
             events = [
                 SecurityEvent(
@@ -300,9 +296,7 @@ def alert_factory():
 def event_factory():
     def make(**overrides):
         event_id = overrides.pop("event_id", uuid.uuid4())
-        timestamp = overrides.pop(
-            "timestamp", datetime(2026, 10, 19, 9, 0, tzinfo=timezone.utc)
-        )
+        timestamp = overrides.pop("timestamp", datetime(2026, 10, 19, 9, 0, tzinfo=UTC))
         payload = {
             "event_id": str(event_id),
             "timestamp": timestamp.isoformat()
@@ -337,7 +331,7 @@ def failure_batch(event_factory):
         step: timedelta = timedelta(minutes=1),
         outcome: str = "failure",
     ) -> list[dict]:
-        first = start or datetime(2026, 10, 19, 9, 0, tzinfo=timezone.utc)
+        first = start or datetime(2026, 10, 19, 9, 0, tzinfo=UTC)
         return [
             event_factory(
                 event_id=uuid.uuid4(),

@@ -23,7 +23,9 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
 }
 
 #: Reopening a closed incident requires a written justification.
-REASON_REQUIRED_TRANSITIONS: frozenset[tuple[str, str]] = frozenset({("closed", "open")})
+REASON_REQUIRED_TRANSITIONS: frozenset[tuple[str, str]] = frozenset(
+    {("closed", "open")}
+)
 
 
 class InvalidStatusTransitionError(Exception):
@@ -94,8 +96,7 @@ def list_alerts(
         .offset(offset)
     ).all()
     return [
-        to_alert_read(alert, int(evidence_count or 0))
-        for alert, evidence_count in rows
+        to_alert_read(alert, int(evidence_count or 0)) for alert, evidence_count in rows
     ], total
 
 

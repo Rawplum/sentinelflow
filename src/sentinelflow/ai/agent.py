@@ -245,8 +245,10 @@ def run_agent(
 
         round_started = time.monotonic()
 
-        def round_ms() -> int:
-            return int((time.monotonic() - round_started) * 1000)
+        def round_ms(started_at: float = round_started) -> int:
+            # Bind the start time as a default: a closure over the loop variable
+            # would read whatever the last iteration left there.
+            return int((time.monotonic() - started_at) * 1000)
 
         try:
             turn = client.complete(

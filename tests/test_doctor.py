@@ -112,7 +112,9 @@ def test_masking_keeps_the_shape_but_not_the_secret() -> None:
     )
 
     assert "hunter2" not in masked
-    assert masked == "postgresql+psycopg://sentinelflow:***@db.internal:5432/sentinelflow"
+    assert (
+        masked == "postgresql+psycopg://sentinelflow:***@db.internal:5432/sentinelflow"
+    )
 
 
 def test_masking_a_dsn_without_a_password_is_a_no_op() -> None:

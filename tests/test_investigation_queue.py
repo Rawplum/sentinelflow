@@ -10,10 +10,13 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
-import pytest
 from sqlalchemy import select
 
-from sentinelflow.ai.model_client import AgentFindings, ModelClientError, ModelTurn, ToolCallRequest
+from sentinelflow.ai.model_client import (
+    ModelClientError,
+    ModelTurn,
+    ToolCallRequest,
+)
 from sentinelflow.core.config import get_settings
 from sentinelflow.core.time import utcnow
 from sentinelflow.models.investigation import Investigation
@@ -24,7 +27,6 @@ from sentinelflow.services.investigation_worker import (
     reap_expired,
 )
 from sentinelflow.services.investigations import create_investigation
-
 from support import ScriptedClient, evidence_ids, findings
 
 
@@ -102,7 +104,9 @@ def test_expired_lease_is_reclaimable(
 ) -> None:
     """A worker that died mid-run must not hold the task forever."""
     alert_id = alert_factory()
-    investigation_id = _make_pending(session_factory, alert_id, admin_user, max_attempts=3)
+    investigation_id = _make_pending(
+        session_factory, alert_id, admin_user, max_attempts=3
+    )
 
     with session_factory() as session:
         claim_next(session, lease_seconds=60)
@@ -123,7 +127,9 @@ def test_expired_lease_without_attempts_left_is_failed(
     alert_factory, admin_user, session_factory
 ) -> None:
     alert_id = alert_factory()
-    investigation_id = _make_pending(session_factory, alert_id, admin_user, max_attempts=1)
+    investigation_id = _make_pending(
+        session_factory, alert_id, admin_user, max_attempts=1
+    )
 
     with session_factory() as session:
         claim_next(session, lease_seconds=60)
@@ -147,7 +153,9 @@ def test_expired_lease_without_attempts_left_is_failed(
 # --- retries ----------------------------------------------------------------
 
 
-def _client_that_fails(retryable: bool, message: str = "Model request failed: TimeoutError"):
+def _client_that_fails(
+    retryable: bool, message: str = "Model request failed: TimeoutError"
+):
     error = ModelClientError(message, retryable=retryable)
     return ScriptedClient([error])
 
@@ -158,7 +166,9 @@ def test_transient_failure_is_retried_with_backoff(
     monkeypatch.setenv("AGENT_RETRY_BACKOFF_SECONDS", "30")
     get_settings.cache_clear()
     alert_id = alert_factory()
-    investigation_id = _make_pending(session_factory, alert_id, admin_user, max_attempts=2)
+    investigation_id = _make_pending(
+        session_factory, alert_id, admin_user, max_attempts=2
+    )
     client = _client_that_fails(retryable=True)
 
     with session_factory() as session:
@@ -173,7 +183,9 @@ def test_transient_failure_is_retried_with_backoff(
 
     with session_factory() as session:
         investigation = session.get(Investigation, investigation_id)
-        assert investigation.status == "pending", "transient errors go back to the queue"
+        assert investigation.status == "pending", (
+            "transient errors go back to the queue"
+        )
         assert investigation.attempt_count == 1
         assert investigation.next_attempt_at is not None
         assert investigation.error_code == "model_timeout"
@@ -195,7 +207,9 @@ def test_retry_is_bounded_by_max_attempts(
     monkeypatch.setenv("AGENT_RETRY_BACKOFF_SECONDS", "0")
     get_settings.cache_clear()
     alert_id = alert_factory()
-    investigation_id = _make_pending(session_factory, alert_id, admin_user, max_attempts=2)
+    investigation_id = _make_pending(
+        session_factory, alert_id, admin_user, max_attempts=2
+    )
     client = _client_that_fails(retryable=True)
 
     for _ in range(4):  # more loops than attempts: must not loop forever
@@ -221,7 +235,9 @@ def test_non_retryable_failure_fails_immediately(
 ) -> None:
     """A schema violation is deterministic; retrying would burn tokens."""
     alert_id = alert_factory()
-    investigation_id = _make_pending(session_factory, alert_id, admin_user, max_attempts=3)
+    investigation_id = _make_pending(
+        session_factory, alert_id, admin_user, max_attempts=3
+    )
     client = _client_that_fails(
         retryable=False,
         message="Model output did not match the required findings schema",
@@ -252,7 +268,9 @@ def test_tool_timeout_does_not_retry_the_task(
     from sentinelflow.ai.tools import TOOL_SPECS, ToolSpec
 
     alert_id = alert_factory(evidence_count=3)
-    investigation_id = _make_pending(session_factory, alert_id, admin_user, max_attempts=2)
+    investigation_id = _make_pending(
+        session_factory, alert_id, admin_user, max_attempts=2
+    )
 
     original = TOOL_SPECS["get_related_events"]
 
@@ -355,11 +373,11 @@ def test_pending_task_survives_a_process_restart(tmp_path) -> None:
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
+    from sentinelflow.core.permissions import UserRole
+    from sentinelflow.core.security import hash_password
     from sentinelflow.db.session import Base
     from sentinelflow.models.alert import Alert
     from sentinelflow.models.user import User
-    from sentinelflow.core.security import hash_password
-    from sentinelflow.core.permissions import UserRole
 
     db_path = tmp_path / "queue.db"
     url = f"sqlite:///{db_path.as_posix()}"
@@ -395,6 +413,7 @@ def test_pending_task_survives_a_process_restart(tmp_path) -> None:
         investigation = create_investigation(
             session, alert.id, user=user, client=client
         )
+        assert investigation is not None
         session.commit()
         investigation_id = investigation.id
         alert_id = alert.id

@@ -133,9 +133,7 @@ def check_login_throttle(
 
     ip_digest = ip_hash(source_ip)
     if ip_digest is not None:
-        ip_failures = _count_failures(
-            session, LoginAttempt.ip_hash, ip_digest, since
-        )
+        ip_failures = _count_failures(session, LoginAttempt.ip_hash, ip_digest, since)
         if ip_failures >= settings.login_rate_limit_ip_attempts:
             return window
 

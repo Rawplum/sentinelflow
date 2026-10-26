@@ -1,5 +1,6 @@
-from datetime import datetime, timedelta, timezone
 import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 
@@ -8,11 +9,11 @@ from sentinelflow.services.detection import (
     find_suspicious_login_windows,
 )
 
-BASE = datetime(2026, 10, 19, 9, 0, tzinfo=timezone.utc)
+BASE = datetime(2026, 10, 19, 9, 0, tzinfo=UTC)
 
 
-def make_event(second: int, **overrides) -> DetectionEvent:
-    values = {
+def make_event(second: int, **overrides: Any) -> DetectionEvent:
+    values: dict[str, Any] = {
         "event_id": uuid.uuid4(),
         "timestamp": BASE + timedelta(seconds=second),
         "username": "alice.demo",
@@ -78,9 +79,7 @@ def test_different_usernames_are_not_merged() -> None:
 
 def test_different_source_ips_are_not_merged() -> None:
     events = [make_event(second, source_ip="198.51.100.10") for second in (0, 60, 120)]
-    events += [
-        make_event(second, source_ip="203.0.113.20") for second in (0, 60, 120)
-    ]
+    events += [make_event(second, source_ip="203.0.113.20") for second in (0, 60, 120)]
 
     assert find_suspicious_login_windows(events) == []
 

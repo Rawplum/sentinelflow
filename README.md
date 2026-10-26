@@ -1,5 +1,10 @@
 # SentinelFlow
 
+<sub>**English** · Security logs become traceable findings. Rules raise an alert; an AI
+investigator may only read logs through four whitelisted tools, and every event it
+cites must exist in that alert's evidence — otherwise the task fails instead of
+producing a plausible-looking report. A human finalizes. FastAPI · PostgreSQL · React.</sub>
+
 把零散的安全日志变成一条**可追溯的研判结论**。
 
 导入日志 → 规则检测出告警 → 打开告警看证据 → 让 AI 调查员分析 → 得到一份必须引用原始事件的报告 → 人工定稿。
@@ -29,6 +34,17 @@ SentinelFlow 把这一步拆成可验证的两半：
 | **失败是可见的** | 模型超时会以 `model_timeout` 结束而不是永远卡住；引用非法会 `citation_invalid`；任务有租约、重试上限、卡死回收 |
 | **并发问题是查出来的** | 8 个客户端同时改状态会让历史链断裂，6 个并发 POST 会给一个告警起 5 个任务——都是实测发现、行锁修复、并在 PostgreSQL 上加了回归测试 |
 | **性能是量出来的** | 96k 事件下报告接口 P50 12.8 ms；检测从 25.6 s 优化到 3.0 s。数字和测法都在 `docs/PERFORMANCE.md` |
+
+## 界面
+
+告警详情页：上面是关联证据（每条都能点回原始日志），下面是 AI 调查的执行步骤、工具调用参数和报告。
+报告里列出的每个事件 ID 都经过校验——引用了不存在的 ID，这次调查会直接失败。
+
+<img src="docs/images/investigation.png" width="860" alt="告警详情、AI 调查执行步骤与报告">
+
+仪表盘：
+
+<img src="docs/images/dashboard.png" width="860" alt="安全运营仪表盘">
 
 ## 现在能用吗
 

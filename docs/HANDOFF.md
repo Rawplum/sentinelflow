@@ -1246,6 +1246,53 @@ DECISIONS 开头加阅读提示（早期 Docker 建议已被 D-050 取代）。
 - 没有重跑付费的真实模型基准（昨日数据仍有效，代码路径未改）。
 - 没有验证 Docker（已移除）、CI runner、macOS/Linux、多副本 worker。
 
+## 5.15 第十八天续（2026-10-26）：第一次真实 CI 运行
+
+推送后 `.github/workflows/ci.yml` 首次在 GitHub 上执行，`postgres` job 失败：
+
+```text
+FAILED tests/test_migrations.py::test_alembic_upgrade_and_downgrade
+Failed: MIGRATION_TEST_DATABASE_URL must point to a test database
+1 failed, 364 passed
+```
+
+### 原因
+
+不是测试写错，是**工作流命名违反了自己的守卫**。
+
+`tests/test_migrations.py` 和 `tests/conftest.py` 都有一道保护：URL 里必须含 `test`，
+否则拒绝运行——防止手滑把测试指向生产库。而工作流里建的是
+`sentinelflow_migrations` / `sentinelflow_ci`，两个都不含 `test`。
+
+本机跑的时候只设了 `TEST_DATABASE_URL`（含 `test`），迁移测试被 skip，所以没暴露；
+CI 里两个 URL 都设了，守卫立刻触发。
+
+### 修复
+
+- 库名改为 `sentinelflow_migration_test` / `sentinelflow_ci_test`。
+- **没有**放宽守卫，也没有给测试加 skip。
+- 新增回归测试 `test_ci_test_databases_satisfy_the_test_guard`：
+  解析工作流，断言每个 `*_TEST_DATABASE_URL` 都含 `test`。
+  做了变异验证——把库名改回去，它报出的错误和 CI 上一模一样。
+
+### 本地复现
+
+按 CI 的 `postgres` job 原样跑：
+
+```text
+TEST_DATABASE_URL=.../sentinelflow_test
+MIGRATION_TEST_DATABASE_URL=.../sentinelflow_migration_test
+pytest -q  →  366 passed, 0 skipped
+alembic upgrade head → 6 级；alembic check → 无漂移
+```
+
+366 = 362（SQLite 全量）+ 2（并发，仅 PG）+ 1（迁移）+ 1（新增守卫）。
+
+### 教训
+
+本地跑绿不等于 CI 跑绿，差别往往在**环境变量的组合**上。
+这次是本地只设了一个 URL、CI 设了两个。
+
 ## 6. 环境准备、数据库、用户、启动和测试
 
 ### 安装

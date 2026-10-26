@@ -100,7 +100,7 @@ jobs:
       # set. The migration test drops and recreates every table, so it gets its
       # own database rather than sharing the one the suite uses.
       TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/sentinelflow_test
-      MIGRATION_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/sentinelflow_migrations
+      MIGRATION_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/sentinelflow_migration_test
       JWT_SECRET: ci-only-secret-0123456789abcdefghijklmnop
     steps:
       - uses: actions/checkout@v4
@@ -120,8 +120,8 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: |
-          psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE sentinelflow_migrations'
-          psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE sentinelflow_ci'
+          psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE sentinelflow_migration_test'
+          psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE sentinelflow_ci_test'
 
       - name: Suite against PostgreSQL
         run: python -m pytest -q
@@ -131,7 +131,7 @@ jobs:
 
       - name: Migrations apply cleanly to an empty database
         env:
-          DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/sentinelflow_ci
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/sentinelflow_ci_test
         run: |
           python -m alembic upgrade head
           python -m alembic current

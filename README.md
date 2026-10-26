@@ -45,7 +45,7 @@ SentinelFlow 是一个 AI 辅助的安全事件研判与响应平台。当前版
 | Agent 对比基准 | 已实现，三方均有真实结果 | 25 个用例；见 `docs/BENCHMARK.md` |
 | 性能与并发实测 | 已实现，修复 4 个问题 | `perf/`；96k 事件下的 P50/P95 见 `docs/PERFORMANCE.md` |
 | 静态检查与类型 | 已接入，0 告警 | ruff 0 问题、mypy 89 文件 0 错误 |
-| CI | 已配置，未在真实 runner 上跑过 | `.github/workflows/ci.yml`，3 个必需 job + 1 个可选 |
+| CI | 已接入 GitHub Actions，首轮暴露并修复了一个配置错误 | 3 个必需 job + 1 个可选；见 HANDOFF §5.15 |
 | V1.0 验收 | 完成，65/65 检查通过 | 见 `docs/V1_ACCEPTANCE.md` |
 | 真实浏览器 E2E | 已实现，16 项通过 | `e2e/browser.mjs`（真实 Chromium + 真实后端） |
 | 调查过程追踪 | 已实现，测试通过 | `investigation_rounds` + 轮次/工具耗时 + `duration_ms` + `request_id` |

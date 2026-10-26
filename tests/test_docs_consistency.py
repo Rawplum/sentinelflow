@@ -82,3 +82,28 @@ def test_ci_keeps_the_optional_model_job_out_of_the_required_path() -> None:
             continue
         serialised = yaml.safe_dump(job)
         assert "secrets." not in serialised, f"required job {name} reads a secret"
+
+
+def test_ci_test_databases_satisfy_the_test_guard() -> None:
+    """The suite refuses to run against a database whose name lacks "test".
+
+    That guard exists so a mistyped URL cannot wipe a real database. CI has to
+    honour it: the first version of this workflow created
+    `sentinelflow_migrations`, and the migration test failed on the guard before
+    it ever reached a migration.
+    """
+    workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    )
+
+    checked = 0
+    for name, job in workflow["jobs"].items():
+        for key, value in (job.get("env") or {}).items():
+            if not key.endswith("_TEST_DATABASE_URL"):
+                continue
+            assert "test" in str(value).lower(), (
+                f"{name}.{key} points at {value}, which the test guard rejects"
+            )
+            checked += 1
+
+    assert checked, "the workflow should define at least one test database URL"

@@ -20,6 +20,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
 from benchmark.baselines import (
     EchoToolClient,
     run_agent,
@@ -28,10 +32,6 @@ from benchmark.baselines import (
 )
 from benchmark.dataset import load_cases, seed
 from benchmark.metrics import compute, meets_expectation
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
 from sentinelflow.ai.model_client import ModelNotConfiguredError, build_model_client
 from sentinelflow.core.permissions import UserRole
 from sentinelflow.db.session import Base

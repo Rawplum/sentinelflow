@@ -1146,16 +1146,24 @@ notepad .env
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
+### 检查环境
+
+```bat
+sentinelflow-doctor
+```
+
+它按顺序检查 Python 版本、`.env`、数据库连通、迁移版本、是否有用户，
+每项失败都给出可直接复制的命令。只读，不打印密码。
+
 ### 迁移
 
 ```bat
-docker compose up -d db
 alembic upgrade head
 alembic current
 alembic check
 ```
 
-当前 head：`0005`。
+当前 head：`0006`。
 
 回滚到认证前：`alembic downgrade 0001`，会删除 `audit_logs` 和 `users`，不影响事件和告警数据。
 只回滚阶段 A：`alembic downgrade 0002`，会删除 `investigation_reports`、`alert_status_history`、`revoked_tokens`、`login_attempts`，不影响既有业务表。

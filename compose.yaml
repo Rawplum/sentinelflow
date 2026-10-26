@@ -1,0 +1,23 @@
+name: sentinelflow
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sentinelflow}
+      POSTGRES_USER: ${POSTGRES_USER:-sentinelflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports:
+      # Local development only: never expose the database on all interfaces.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - sentinelflow_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  sentinelflow_pgdata:

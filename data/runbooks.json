@@ -1,0 +1,51 @@
+[
+  {
+    "id": "RB-AUTH-001",
+    "title": "Suspicious authentication failure burst",
+    "tags": ["authentication", "brute-force", "login", "password-spray"],
+    "summary": "Triage steps for a burst of failed logins from one source IP against one account.",
+    "steps": [
+      "Confirm whether the source IP is expected for the account owner (VPN, office, travel).",
+      "Check whether any successful login followed the failures within the same window.",
+      "Compare the account's normal login hours and source geography.",
+      "Contact the account owner through a channel other than the one under suspicion.",
+      "If a successful login followed the burst, treat the account as potentially compromised and escalate."
+    ]
+  },
+  {
+    "id": "RB-AUTH-002",
+    "title": "Password spraying across many accounts",
+    "tags": ["authentication", "password-spray", "lateral", "identity"],
+    "summary": "Handling a pattern where one source tries few passwords against many accounts.",
+    "steps": [
+      "Count distinct usernames targeted by the source IP in the window.",
+      "Check for a successful login from the same source IP.",
+      "Review whether the source IP appears in other alerts or audit records.",
+      "Escalate to the identity team; consider forced password reset for affected accounts."
+    ]
+  },
+  {
+    "id": "RB-EVID-001",
+    "title": "Evidence collection and chain of custody",
+    "tags": ["evidence", "timeline", "reporting"],
+    "summary": "How to assemble and cite evidence for an investigation report.",
+    "steps": [
+      "Cite only event identifiers that exist in the imported data set.",
+      "Order the timeline by event timestamp and keep it consistent with the cited evidence.",
+      "State explicitly which telemetry sources are missing from the analysis.",
+      "Record limitations rather than filling gaps with assumptions."
+    ]
+  },
+  {
+    "id": "RB-RESP-001",
+    "title": "Response boundaries for automated triage",
+    "tags": ["response", "approval", "safety"],
+    "summary": "What an automated investigation may and may not do.",
+    "steps": [
+      "Automated triage is read-only: no blocking, disabling, deleting, or scanning.",
+      "Every recommendation requires human review before action.",
+      "Report conclusions must be traceable to specific event identifiers.",
+      "Escalate to a human analyst when evidence is incomplete."
+    ]
+  }
+]

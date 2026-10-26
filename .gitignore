@@ -1,0 +1,35 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Local databases and logs
+*.sqlite3
+*.db
+*.log
+
+# Evaluation artifacts
+evaluation/last_report.json
+
+# Local agent workspace state (not project source)
+.workbuddy-ai/
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

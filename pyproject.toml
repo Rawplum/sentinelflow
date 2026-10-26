@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sentinelflow"
+version = "0.1.0"
+description = "AI-assisted security event triage and response platform (local development build)."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn>=0.30,<1.0",
+    "pydantic>=2.8,<3.0",
+    "pydantic-settings>=2.4,<3.0",
+    "SQLAlchemy>=2.0.30,<3.0",
+    "alembic>=1.13,<2.0",
+    "psycopg[binary]>=3.2,<4.0",
+    "PyJWT>=2.10,<3.0",
+    "argon2-cffi>=23.1,<26.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2,<9.0",
+    "httpx2>=2.14,<3.0",
+]
+
+[project.scripts]
+sentinelflow-import = "sentinelflow.cli.import_events:main"
+sentinelflow-create-user = "sentinelflow.cli.create_user:main"
+sentinelflow-investigate = "sentinelflow.cli.investigate:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: requires a running PostgreSQL instance",
+]

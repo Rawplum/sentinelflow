@@ -1,63 +1,70 @@
 # SentinelFlow
 
-SentinelFlow 是一个 AI 辅助的安全事件研判与响应平台。当前版本完成了第一条**确定性端到端闭环**：
+把零散的安全日志变成一条**可追溯的研判结论**。
 
-```text
-导入合成安全日志 → 规则生成告警 → 查询证据 → 生成结构化调查报告
+导入日志 → 规则检测出告警 → 打开告警看证据 → 让 AI 调查员分析 → 得到一份必须引用原始事件的报告 → 人工定稿。
+
+整条链路都能回答"这个结论是从哪条日志来的"，以及"谁在什么时候改过它"。
+
+## 它解决什么问题
+
+安全运营里最耗时的不是发现异常，是**判断一个异常是不是真的**。SIEM 会把告警丢给你，
+分析师再去翻原始日志、拼时间线、写结论——这一步无法自动化，因为结论需要解释。
+
+SentinelFlow 把这一步拆成可验证的两半：
+
+- **确定性规则**先兜底：5 分钟内同一账号同一来源 ≥5 次登录失败，产生告警。
+  规则不解释，只标记。
+- **Agent 调查员**再做研判：它只能调用 4 个只读工具查日志，在 5 轮 / 8 次调用预算内
+  得出结论。**它引用的每个事件 id 都必须真实存在于该告警的证据里**，否则整次调查失败。
+
+第二条是关键：没有引用校验，模型会编造一条看起来很合理的结论。有了它，
+幻觉的代价是"任务失败"，而不是"一份错误的报告被签发"。
+
+## 为什么值得看
+
+| | |
+| --- | --- |
+| **双轨可对照** | 规则、单次模型、工具调用 Agent 三条基线跑同一套 25 个用例：期望匹配 13/18、37/44、41/44。Agent 更好，但代价是 10.7 倍 token——这个结论本身就写进了文档 |
+| **失败是可见的** | 模型超时会以 `model_timeout` 结束而不是永远卡住；引用非法会 `citation_invalid`；任务有租约、重试上限、卡死回收 |
+| **并发问题是查出来的** | 8 个客户端同时改状态会让历史链断裂，6 个并发 POST 会给一个告警起 5 个任务——都是实测发现、行锁修复、并在 PostgreSQL 上加了回归测试 |
+| **性能是量出来的** | 96k 事件下报告接口 P50 12.8 ms；检测从 25.6 s 优化到 3.0 s。数字和测法都在 `docs/PERFORMANCE.md` |
+
+## 现在能用吗
+
+能用，但要分清边界。
+
+**可以**：本地跑完整流程、演示、交接、继续开发。V1.0 验收脚本 65 项全过，
+CI 三个必需 job 全绿，`docs/V1_ACCEPTANCE.md` 记录了逐项证据。
+
+**不可以**：直接放到公网。没有 TLS、没有 MFA、审计只增不删没有归档策略，
+单进程单 worker 没做多副本验证。评测集的 22 个可评用例由作者一人标注，
+93% 是"与作者判断一致的程度"，不是客观正确率。
+
+## 能力概览
+
+| 能力 | 说明 |
+| --- | --- |
+| 认证与权限 | JWT（含 `jti`）+ Argon2id；admin / analyst 两级 RBAC；登录限流（数据库计数，跨进程有效）；登出即撤销 |
+| 审计 | append-only，记录动作、资源、结果、请求 id；不可通过 API 修改或删除 |
+| 日志导入 | JSONL CLI（逐行报告坏数据）+ HTTP 批量导入（500 条/批）；重复导入幂等 |
+| 规则检测 | `AUTH-001`；重复运行不产生重复告警（dedup key） |
+| Agent 调查 | 4 个只读白名单工具、轮次/调用预算、引用校验、数据库队列（异步，202 立即返回） |
+| 报告 | 版本号 + `draft`/`finalized`/`superseded`；定稿不可改，修订建新版本；证据上限 100 条并标记截断 |
+| 前端 | React 19 控制台：告警列表筛选、证据查看、启动调查、轮询进度、查看步骤与工具调用、读报告 |
+| 验证体系 | 后端 362 项（SQLite）/ 366 项（PostgreSQL）、前端 48 项、浏览器 E2E 16 项、端到端验收 65 项、静态检查 0 告警 |
+
+## 快速开始
+
+```bash
+git clone https://github.com/Rawplum/sentinelflow.git
+cd sentinelflow
 ```
 
-整条链路不调用大模型，可作为后续 Agent 版本的对照基线。
+需要 Python 3.11+、PostgreSQL 16、Node 22+（仅前端）。**不需要 Docker。**
 
-> **安全说明**：已实现 JWT 认证（含 `jti`）、基于角色的访问控制、append-only 操作审计、登录限流和令牌撤销。当前仍是本地开发版本：没有 TLS、MFA、刷新令牌、密钥轮换和审计保留策略，默认只应绑定 `127.0.0.1`。生产部署前仍需安全评审和额外加固。
-
-## 当前状态
-
-| 能力 | 状态 | 说明 |
-| --- | --- | --- |
-| FastAPI 应用与 `GET /health` | 已实现，测试通过 | 公开，不依赖数据库 |
-| 环境配置 | 已实现，测试通过 | `pydantic-settings`，读取 `.env` |
-| `SecurityEvent` / `Alert` / `alert_events` 模型 | 已实现，测试通过 | SQLAlchemy 2.x，含 CHECK、唯一约束、外键 |
-| `User` / `AuditLog` 模型 | 已实现，测试通过 | 用户、角色、密码哈希、审计表 |
-| Alembic 迁移 `0001`–`0006` | 已实现，PostgreSQL 16.15 验证通过 | 可升级、可降级 |
-| JSONL 导入 CLI | 已实现，SQLite 与 PostgreSQL 验证通过 | 逐行报告无效数据，重复事件跳过 |
-| 本地用户创建 CLI | 已实现，测试通过 | 交互式密码输入，无默认密码 |
-| JWT 登录 `/api/v1/auth/login` | 已实现，测试通过 | Argon2id + 有过期时间的 Bearer token |
-| RBAC（admin / analyst） | 已实现，测试通过 | 统一权限依赖，后端强制检查 |
-| 操作审计 | 已实现，测试通过 | 登录、导入、检测、报告查看、权限拒绝等 |
-| `POST /api/v1/events/import` | 已实现，测试通过 | admin；单批最多 500 条 |
-| `GET /api/v1/events` | 已实现，测试通过 | admin/analyst；`limit` 1–200；字段过滤、关键词搜索、时间范围 |
-| AUTH-001 确定性规则 | 已实现，测试通过 | 5 分钟内 ≥5 次认证失败 |
-| `POST /api/v1/detections/run` | 已实现，测试通过 | admin；重复运行不产生重复告警 |
-| `GET /api/v1/alerts` | 已实现，测试通过 | admin/analyst；分页、证据计数（SQL 统计） |
-| `GET /api/v1/alerts/{id}` | 已实现，测试通过 | admin/analyst；告警详情 + 状态历史 |
-| `PATCH /api/v1/alerts/{id}` | 已实现，测试通过 | admin；状态机流转，非法转换 409 |
-| `GET /api/v1/alerts/{id}/report` | 已实现，测试通过 | admin/analyst；确定性生成、不写库、证据上限 100 |
-| `GET /api/v1/alerts/{id}/evidence` | 已实现，测试通过 | admin/analyst；证据分页，默认不含 raw_message |
-| 报告持久化与版本 | 已实现，测试通过 | 草稿/定稿/superseded、输入快照、版本号 |
-| `POST /api/v1/reports/{id}/finalize` | 已实现，测试通过 | admin；定稿后不可改，修订建新版本 |
-| 登录限流 | 已实现，测试通过 | 数据库计数，(username, IP) 5 次 / IP 20 次每 5 分钟，超限 429 |
-| JWT 令牌撤销 | 已实现，测试通过 | `jti` + `revoked_tokens`；`POST /api/v1/auth/logout` |
-| `GET /api/v1/audit-logs` | 已实现，测试通过 | admin only；分页、只读 |
-| React 安全运营前端 | 已实现，浏览器联调通过 | 独立 `frontend/`；登录、仪表盘、事件、告警、报告、审计 |
-| 前端自动化测试 | 已实现，33 passed | Vitest + React Testing Library + MSW |
-| Agent 评测集 | 已实现，13/13 通过 | `evaluation/`，10 项指标，Mock 模型 |
-| 安全加固与负向测试 | 已实现，46 项 | 见 `docs/SECURITY.md`：威胁模型、12 类控制、残余风险 |
-| Agent 对比基准 | 已实现，三方均有真实结果 | 25 个用例；见 `docs/BENCHMARK.md` |
-| 性能与并发实测 | 已实现，修复 4 个问题 | `perf/`；96k 事件下的 P50/P95 见 `docs/PERFORMANCE.md` |
-| 静态检查与类型 | 已接入，0 告警 | ruff 0 问题、mypy 89 文件 0 错误 |
-| CI | 已接入 GitHub Actions，**三个必需 job 全绿** | 首轮暴露一个库名配置错误，修复后通过；见 HANDOFF §5.15 |
-| V1.0 验收 | 完成，65/65 检查通过 | 见 `docs/V1_ACCEPTANCE.md` |
-| 真实浏览器 E2E | 已实现，16 项通过 | `e2e/browser.mjs`（真实 Chromium + 真实后端） |
-| 调查过程追踪 | 已实现，测试通过 | `investigation_rounds` + 轮次/工具耗时 + `duration_ms` + `request_id` |
-| 前端调查闭环 | 已实现，测试通过 | 告警详情页启动调查、轮询状态、查看步骤/工具/报告、失败重试 |
-| 告警列表筛选 | 已实现（后端过滤） | `GET /alerts?status=&severity=`，计数随筛选变化 |
-| AI Agent 调查 | 已实现（Mock 模型验证） | 单 Agent、4 个只读白名单工具、5 轮/8 次预算、引用校验、产出草稿 |
-| Agent 真实模型调用 | 已实现，已真实测量 | DeepSeek-V4.1-Flash；见 `docs/BENCHMARK.md`。样本仅 6 个可评分用例 |
-| `/ready` 就绪检查 | 未实现 | 当前只有 `/health` |
-| 本地启动（无 Docker） | 已端到端验证 | `sentinelflow-doctor` → 迁移 → 建用户 → API → 浏览器 E2E |
-| Git 仓库 | 已初始化（未提交） | 2026-10-23 `git init`，尚无 commit |
-
-状态含义：**已实现，测试通过** 表示有代码且有实际自动化测试证据；**验证通过** 表示在真实 PostgreSQL 16.15 上执行过；**未实现** 表示只有文档计划。
+完整步骤见下方[从零启动（完整步骤）](#从零启动完整步骤)——8 步，每步都有验证方式。
+配好环境后跑 `python scripts/check.py` 可以一次性确认所有检查通过。
 
 ## 技术栈
 
@@ -94,7 +101,7 @@ SentinelFlow 是一个 AI 辅助的安全事件研判与响应平台。当前版
 
 不需要 Docker。`GET /health` 在数据库未配置时仍可用；`GET /health/ready` 与所有业务接口需要可用的 `DATABASE_URL`。
 
-## 快速开始（从零启动）
+## 从零启动（完整步骤）
 
 **不需要 Docker。** 这个项目就是 Python + PostgreSQL + 一个静态前端，三者都能直接跑在系统上。
 （为什么不做容器化：见 [DECISIONS D-050](docs/DECISIONS.md)。）
@@ -123,7 +130,7 @@ psql -U postgres -c "CREATE DATABASE sentinelflow OWNER sentinelflow;"
 ### 2. 装依赖、写 `.env`
 
 ```bat
-cd /d G://软件开发
+cd sentinelflow
 py -3.11 -m venv .venv
 .venv\Scripts\activate
 python -m pip install -e ".[dev]"
@@ -224,7 +231,7 @@ sentinelflow-import data/sample_events.jsonl
 ### Linux / macOS
 
 ```bash
-cd /path/to/软件开发
+cd sentinelflow
 python3.11 -m venv .venv && source .venv/bin/activate
 python -m pip install -e ".[dev]"
 cp .env.example .env          # 然后编辑 JWT_SECRET / POSTGRES_PASSWORD / DATABASE_URL
@@ -282,7 +289,7 @@ Docker 真正解决的唯一问题是"不用装 PostgreSQL"，而 PostgreSQL 是
 启动：
 
 ```bat
-cd /d G:\软件开发\frontend
+cd sentinelflow/frontend
 npm install
 copy .env.example .env
 npm run dev
@@ -658,7 +665,7 @@ CI 里没有任何步骤删除或重置仓库文件；数据库 job 在自己的
 ### 前端测试
 
 ```bat
-cd /d G:\软件开发\frontend
+cd sentinelflow/frontend
 npm run typecheck
 npm run lint
 npm test

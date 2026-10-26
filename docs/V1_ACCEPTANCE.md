@@ -21,7 +21,8 @@
 | 输出真实、可复核的验收报告 | ✅ 本文档，§9 给出重跑命令 |
 
 **但这不是"可以直接对外提供服务"的结论。** 它没有 TLS、没有 MFA、没有多副本验证，
-真实模型只测过一个、CI 从未在真实 runner 上跑过。它是一个**可以展示、可以交接、
+真实模型只测过一个。CI 已在 GitHub Actions 上跑通（首轮失败后修复）。
+它是一个**可以展示、可以交接、
 可以继续开发的本地版本**，不是一个可以放到公网的产品。
 
 ### 本轮发现并修复的问题
@@ -304,7 +305,7 @@ POST /api/v1/auth/login
 | **Docker 部署** | 容器化已移除（D-050）；本机无 daemon、`wsl.exe` 被安全策略阻断 | 不提供，非缺陷 |
 | **真实模型调用（本轮）** | 需要付费密钥；昨日已测（Agent 41/44、单次 37/44、规则 13/18），本轮未重跑 | 数字是昨日的，代码路径未改 |
 | **`unsafe_action_blocked`（真实模型）** | 同上，需要真实模型 | 安全边界由 86 项脚本化测试覆盖 |
-| **CI 在真实 runner 上运行** | 本机无远程仓库、无 Actions runner | 工作流结构已校验，命令与本地一致 |
+| ~~CI 在真实 runner 上运行~~ | ✅ 已补齐：2026-10-26 在 GitHub Actions 上跑通（见 §11） | — |
 | **macOS / Linux 上的命令** | 本机是 Windows | README 给出对应命令，未实测 |
 | **干净机器安装 PostgreSQL** | 本机用免安装二进制包 | 安装步骤未实测 |
 | **`npm ci` 从零安装** | 沙箱阻止批量删除 `.vite` 缓存（65 文件 > 50 阈值） | 用 `npm install` 修复依赖后 build/test/lint 全通过；lockfile 差异已回退 |
@@ -389,7 +390,7 @@ node e2e/browser.mjs
 | 安全基线 | ✅ 无硬编码秘密、无未保护管理面、默认配置安全、负向测试通过 |
 | 部署可复现 | ✅ 本地路径端到端验证；容器化已明确移除 |
 | 文档一致性 | ✅ 修正后一致，且有测试守护（API/数据模型/CI） |
-| 可验证性 | ⚠️ CI 未在真实 runner 运行；真实模型本轮未重跑 |
+| 可验证性 | ⚠️ 真实模型本轮未重跑；CI 已跑通（§11） |
 
 **结论：标记为 V1.0 发布候选。**
 
@@ -397,3 +398,53 @@ node e2e/browser.mjs
 
 不可用于：公网部署（缺 TLS/MFA/审计保留）、生产容量规划（单 worker、无压测）、
 对外的准确率承诺（评测集太小且是自定的）。
+
+---
+
+## 11. CI 首次运行记录
+
+推送后在 GitHub Actions 上执行了两次。
+
+### 第一次：`postgres` job 失败
+
+```text
+FAILED tests/test_migrations.py::test_alembic_upgrade_and_downgrade
+Failed: MIGRATION_TEST_DATABASE_URL must point to a test database
+1 failed, 364 passed in 90.00s
+```
+
+**不是测试写错，是工作流违反了项目自己的守卫。**
+`tests/test_migrations.py` 与 `tests/conftest.py` 都要求数据库 URL 含 `test`，
+否则拒绝运行——防止误把测试指向生产库。而工作流建的是
+`sentinelflow_migrations` 和 `sentinelflow_ci`，两个都不含 `test`。
+
+本机跑不出来：本地只设了 `TEST_DATABASE_URL`（含 `test`），迁移测试被 skip；
+CI 同时设了两个 URL，守卫立刻触发。**差别在环境变量组合。**
+
+### 修复（`aa4cf3e`）
+
+- 库名改为 `sentinelflow_migration_test` / `sentinelflow_ci_test`
+- **没有**放宽守卫，**没有**加 skip
+- 新增回归测试 `test_ci_test_databases_satisfy_the_test_guard`：
+  解析工作流，断言每个 `*_TEST_DATABASE_URL` 都含 `test`。
+  变异验证：把库名改回去，报出的错误与 CI 上一模一样
+- 本地按 CI 的 `postgres` job 原样复现：**366 passed, 0 skipped**，`alembic check` 无漂移
+
+### 第二次：三个必需 job 全绿
+
+`backend`（SQLite）、`frontend`（lint/test/build）、`postgres`（PG + 迁移 + `alembic check`）
+全部通过。
+
+### 这件事说明了什么
+
+- **CI 抓到了本地跑不出来的问题**，这正是它存在的理由。
+- 上一轮验收报告里"CI 未在真实 runner 运行"这条限制**现已消除**。
+- 仍然存在的限制：CI 只跑 Ubuntu；Windows 与 macOS 未配置。
+
+### 更新后的验证状态
+
+| 项 | 之前 | 现在 |
+| --- | --- | --- |
+| CI 在真实 runner 运行 | ⚠️ 未验证 | ✅ 三个必需 job 通过 |
+| 真实模型基准 | ⚠️ 2026-10-25 测得 | 未变（本轮未重跑） |
+| Docker | — | 不适用（D-050 已移除） |

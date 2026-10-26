@@ -1288,10 +1288,20 @@ alembic upgrade head → 6 级；alembic check → 无漂移
 
 366 = 362（SQLite 全量）+ 2（并发，仅 PG）+ 1（迁移）+ 1（新增守卫）。
 
+### 结果
+
+修复推送后第二轮 CI 三个必需 job 全绿（`backend` / `frontend` / `postgres`）。
+**"CI 未验证"这条限制从此消除。**
+
 ### 教训
 
 本地跑绿不等于 CI 跑绿，差别往往在**环境变量的组合**上。
 这次是本地只设了一个 URL、CI 设了两个。
+
+### 仍未覆盖
+
+CI 只在 GitHub 托管的 Ubuntu 上跑。Windows 与 macOS 没有 CI，
+所以 README 里那两条"未验证"仍然成立。
 
 ## 6. 环境准备、数据库、用户、启动和测试
 

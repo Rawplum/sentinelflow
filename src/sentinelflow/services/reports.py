@@ -78,6 +78,24 @@ def count_alert_evidence(session: Session, alert_id: uuid.UUID) -> int:
     return session.scalar(select(func.count()).select_from(subquery)) or 0
 
 
+def count_alert_failures(session: Session, alert_id: uuid.UUID) -> int:
+    """Count linked events whose outcome is a failure.
+
+    The summary must not call every linked event a failed attempt: a rule may
+    link a successful login alongside the failures, and the report would then
+    describe the evidence wrongly while still looking well formed.
+    """
+    subquery = evidence_query(alert_id).subquery()
+    return (
+        session.scalar(
+            select(func.count())
+            .select_from(subquery)
+            .where(subquery.c.outcome == "failure")
+        )
+        or 0
+    )
+
+
 def load_alert_evidence(
     session: Session,
     alert_id: uuid.UUID,
@@ -163,14 +181,25 @@ def build_report(
     truncated = total > evidence_offset + len(evidence)
     shown = len(evidence)
 
+    failures = count_alert_failures(session, alert_id)
+
     if evidence:
         username = evidence[0].username or "unknown user"
         source_ip = evidence[0].source_ip or "unknown source"
-        first_seen = as_utc(evidence[0].timestamp)
-        last_seen = as_utc(evidence[-1].timestamp)
+        # The window belongs to the alert, not to the page being rendered:
+        # a truncated or offset response used to state a narrower window than
+        # the alert actually covered.
+        first_seen = as_utc(alert.first_seen_at)
+        last_seen = as_utc(alert.last_seen_at)
+        if failures == total:
+            counted = f"{total} failed authentication attempts"
+        else:
+            counted = (
+                f"{total} authentication events ({failures} failed) "
+            )
         summary = (
-            f"Rule {alert.rule_id} identified {total} failed authentication "
-            f"attempts for user '{username}' from {source_ip} between "
+            f"Rule {alert.rule_id} identified {counted} "
+            f"for user '{username}' from {source_ip} between "
             f"{first_seen.isoformat()} and {last_seen.isoformat()}."
         )
         if truncated:

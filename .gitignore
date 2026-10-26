@@ -22,9 +22,15 @@ htmlcov/
 *.db
 *.log
 
+# Node modules (the browser E2E script installs playwright with --no-save)
+node_modules/
+
 # Evaluation artifacts
 evaluation/last_report.json
 benchmark/last_report.json
+
+# Browser E2E screenshots
+e2e/failure.png
 
 # Local agent workspace state (not project source)
 .workbuddy-ai/

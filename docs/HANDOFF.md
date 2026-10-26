@@ -2,10 +2,10 @@
 
 最后更新：2026-10-25
 
-**一句话状态**：功能闭环已完成，**SQLite 与 PostgreSQL 16.15 全量验证**（后端 341 passed、前端 48 passed），
-**真实模型也已跑通**（DeepSeek-V4.1-Flash）：Agent 期望匹配 89% vs 规则引擎 60%，但代价是
-11 倍输入 token、2 倍延迟，且单次运行会在 83% 与 100% 之间跳。样本只有 6 个可评分用例，
-**不足以证明工具调用物有所值**。详细状态见下一节。
+**一句话状态**：功能闭环完成，SQLite 与 PostgreSQL 全量验证（后端 344 passed、前端 48 passed、
+真实浏览器 16 项），真实模型已测量（DeepSeek-V4.1-Flash）：**Agent 41/44、单次模型 37/44、规则 13/18**。
+结论是"有模型远好于没模型，但 Agent 与单次模型在准确率上分不出高下，代价是 10.7 倍 token"。
+标注仍是人工的，这是当前最大缺口。详细状态见下一节。
 
 ## 接手须知（先读这一段，约 1 分钟）
 
@@ -14,7 +14,7 @@
 ```bat
 git log --oneline           :: 看最近几次提交，判断上次做到哪
 git status --short          :: 有输出 = 有未提交改动，先看清楚再动手
-pytest -q                   :: 期望 341 passed, 1 skipped（SQLite）
+pytest -q                   :: 期望 344 passed, 1 skipped（SQLite）
 python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 拒答
 ```
 
@@ -26,8 +26,8 @@ python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 �
 | 项 | 值 |
 | --- | --- |
 | 迁移 head | `0006` |
-| 后端测试（SQLite） | 341 passed / 1 skipped |
-| 后端测试（PostgreSQL 16.15） | 341 passed；迁移测试单独跑 1 passed |
+| 后端测试（SQLite） | 344 passed / 1 skipped |
+| 后端测试（PostgreSQL 16.15） | 341 passed（该轮之后新增 3 项）；迁移测试单独跑 1 passed |
 | 前端测试 | 48 passed / 12 files |
 | 已验证环境 | SQLite（内存 + 真实文件）、PostgreSQL 16.15 |
 | **未验证** | 真实模型调用、真实浏览器 |
@@ -37,9 +37,9 @@ python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 �
 1. **PostgreSQL 已经真实验证过**（2026-10-25）。`0001`–`0006` 全量升降级、`alembic check` 无差异、
    全量 pytest 通过、真实 Uvicorn + 队列 worker 全链路冒烟通过。
    `0006` 的 `drop_constraint` 分支已确认可执行。复现命令见 `docs/TESTING.md`。
-2. **模型基线已有真实数字，但样本只有 6 个可评分用例**：Agent 16/18 = 89%、
-   单次模型 11/18 = 61%、规则引擎 3/5 = 60%。三次运行有 4 处判定翻转，
-   **任何单次结果都不能当结论**，要看 `--repeat` 的逐次值。
+2. **模型基线已有真实数字，25 个用例**：Agent 41/44 = 93%、单次模型 37/44 = 84%、
+   规则引擎 13/18 = 72%。两次运行 5 处判定翻转，**任何单次结果都不能当结论**。
+   Agent 的真正差异是拒答（3/3 vs 0/3），不是总体准确率。
 3. **规则基线的风险分数是同义反复**：`risk_level` 直接取自用例里写死的 `alert.severity`。
    它只有"不会拒答（0%）"这一项是真实短板。
 
@@ -52,9 +52,9 @@ python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 �
 
 ### 下一步只有一件事
 
-**扩样本，而不是继续调 prompt。** 现在 6 个可评分用例、1 个模型、3 次运行，
-89% vs 61% 的差距在样本噪声之内。下一步是把用例扩到 30 个以上，最好能引入人工标注的
-"这条告警是否真实攻击"作为客观标签。在样本不足时优化 prompt 只会过拟合这 6 个用例。
+**引入客观标签。** 现在所有期望都是我一个人定的，rubric 已经改过两版。
+`expectation_match_rate` 衡量的是"与我的判断一致的程度"，不是正确率。
+下一步需要人工标注的"这条告警是否真实攻击"。**在这之前不要调 prompt**——那只会拟合这 22 个用例。
 
 ## 1. 项目目标与技术栈
 
@@ -263,7 +263,7 @@ G:\软件开发\
 
 实际测试结果（累计，最新数字见 5.1 第五天验收结果）：
 
-- 全量 SQLite：`341 passed, 1 skipped`（迁移测试因未设置 PostgreSQL URL 跳过）。
+- 全量 SQLite：`344 passed, 1 skipped`（迁移测试因未设置 PostgreSQL URL 跳过）。
 - 全量 PostgreSQL 16.15：`341 passed`；`tests/test_migrations.py` 单独跑 `1 passed`。
 - 既有 112 项测试全部继续通过，**未修改任何既有断言**。
 - 阶段 A 新增 78 项：告警详情、状态机、报告版本、证据分页、事件过滤、登录限流与令牌撤销。
@@ -538,7 +538,7 @@ docs/DECISIONS.md、docs/PLAN.md、docs/TESTING.md、docs/HANDOFF.md
 
 | 检查 | 结果 |
 | --- | --- |
-| 后端全量 | `341 passed, 1 skipped` |
+| 后端全量 | `344 passed, 1 skipped` |
 | Agent / 可观测性 / 评测 / 认证 RBAC 分组 | `97 passed` |
 | 评测集 | `13/13 passed`；`--repeat 3` 判定一致 |
 | 前端 | `33 passed / 9 files`；typecheck 通过；lint 0 warnings；build 通过 |
@@ -1001,6 +1001,52 @@ Agent 比规则引擎准（89% vs 60%），差距来自两件规则引擎做不�
 以 6 个用例的样本，这个差距在噪声之内——**还不能说工具调用值这个成本**。
 
 下一步不是调 prompt，是扩样本（见 `docs/BENCHMARK.md` §8）。
+
+## 5.10 第十四天（2026-10-25）：三项改善，其中一项是真 bug
+
+### 1. 修了一个可达的生产缺陷（报告内容与证据不符）
+
+`build_report` 有两处让报告"看起来正确但说的是错的"：
+
+| 缺陷 | 现象 | 修法 |
+| --- | --- | --- |
+| 窗口取自当前页 | 报告证据上限 100 条；150 条证据的告警，摘要写"到 10:39 结束"，实际到 11:29。`?evidence_offset=3` 会让开始时间也错 | 改用 `alert.first_seen_at` / `last_seen_at` |
+| 把所有事件叫"失败尝试" | 4 失败 + 1 成功的告警被写成"5 failed authentication attempts" | 新增 `count_alert_failures`，混合时写"N authentication events (M failed)" |
+
+新增 `tests/test_report_accuracy.py`（3 项），先写出失败再修。这是本轮唯一的产品代码缺陷。
+
+### 2. 评测集从 9 个扩到 25 个用例
+
+新增 16 个：跨账号撞库、换源成功登录、凌晨成功、阈值边界、密码过期后成功、输错两次后成功、
+2 次失败、缺 IP、空正文、成功失败交替、三种注入（要求删告警 / 要求引用假 ID / 要求打印 Key）、
+中文用户名、1500 字符正文、4 小时内的零星失败。
+
+支撑改动：`seed()` 支持**每事件**的 `username` / `source_ip` / `asset_id` 与空值；
+`expect` 新增 `must_not_cite`（注入要求引用假 ID）与 `must_not_contain`（注入要求打印 Key）。
+
+**rubric 改了第二版。** 第一版写"多次失败后出现成功登录 → high"，与良性用例
+（密码过期、输错两次）的 `max_risk=medium` 直接矛盾——模型照 rubric 执行被判错，
+**错在 rubric**。第二版补了降级条件。同时把 5 条用例的标注改准（全部记录在
+`docs/BENCHMARK.md` 的「被改过的用例」表里，改前改后的数字都留着）。
+
+### 3. 真实浏览器端到端
+
+`e2e/browser.mjs`：真实 Chromium + 真实后端 + Vite 代理，16 项检查全通过
+（登录 → 仪表盘 → 告警列表 → 筛选 → 详情 → 启动调查 → 轮次/工具/报告 → 刷新恢复 → 报告页 → 退出 → 受保护路由跳登录）。
+任何 console error 或未捕获异常都会失败。这是**前端第一次在真浏览器里被点过**。
+
+### 最终数字
+
+```text
+后端  pytest -q                       → 344 passed, 1 skipped
+基准  25 用例 / 模型可评 22 个
+      规则 13/18 = 72%（拒答 0/3）
+      单次模型 37/44 = 84%（拒答 0-1/3）  输入 15.6k token
+      Agent 41/44 = 93%（拒答 3/3）       输入 166k token
+      两次运行 5 处判定翻转
+浏览器 node e2e/browser.mjs            → 16 项通过
+前端  npm test                         → 48 passed
+```
 
 ## 6. 环境准备、数据库、用户、启动和测试
 

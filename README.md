@@ -42,7 +42,8 @@ SentinelFlow 是一个 AI 辅助的安全事件研判与响应平台。当前版
 | 前端自动化测试 | 已实现，33 passed | Vitest + React Testing Library + MSW |
 | Agent 评测集 | 已实现，13/13 通过 | `evaluation/`，10 项指标，Mock 模型 |
 | 安全加固与负向测试 | 已实现，46 项 | 见 `docs/SECURITY.md`：威胁模型、12 类控制、残余风险 |
-| Agent 对比基准 | 已实现，确定性基线有真实结果 | 见 `docs/BENCHMARK.md`：规则 / 单次模型 / Agent 三方对比 |
+| Agent 对比基准 | 已实现，三方均有真实结果 | 25 个用例；见 `docs/BENCHMARK.md` |
+| 真实浏览器 E2E | 已实现，16 项通过 | `e2e/browser.mjs`（真实 Chromium + 真实后端） |
 | 调查过程追踪 | 已实现，测试通过 | `investigation_rounds` + 轮次/工具耗时 + `duration_ms` + `request_id` |
 | 前端调查闭环 | 已实现，测试通过 | 告警详情页启动调查、轮询状态、查看步骤/工具/报告、失败重试 |
 | 告警列表筛选 | 已实现（后端过滤） | `GET /alerts?status=&severity=`，计数随筛选变化 |
@@ -242,15 +243,16 @@ python -m benchmark.runner --baseline all --model real        :: 真实模型，
 
 **真实结果（DeepSeek-V4.1-Flash，三次运行合计）**：
 
-| 基线 | 期望匹配率 | 平均延迟 | 输入 token / 6 用例 |
-| --- | --- | --- | --- |
-| 确定性规则 | 3/5 = 60% | 3 ms | — |
-| 单次模型（无工具） | 11/18 = 61% | 5.4-7.6 s | ~3.8k |
-| Agent（受控工具） | **16/18 = 89%** | 9.6-10.6 s | **~45k** |
+| 基线 | 期望匹配率 | 合理拒答 | 平均延迟 | 输入 token / 22 用例 |
+| --- | --- | --- | --- | --- |
+| 确定性规则 | 13/18 = 72% | 0/3 | 4 ms | — |
+| 单次模型（无工具） | 37/44 = 84% | 0/3 – 1/3 | 5.1 s | **15.6k** |
+| Agent（受控工具） | **41/44 = 93%** | **3/3** | 11.0 s | **166k** |
 
-Agent 比规则引擎准，主要因为它会承认证据不足、会指出时间线矛盾；
-但它只比单次模型高 28 个百分点、输入 token 却是 11 倍，而样本只有 6 个可评分用例、
-三次运行有 4 处判定翻转——**不足以证明工具调用值这个成本**。
+**有模型远好于没模型**：规则引擎只有一种输出形态，永远给结论、永远按 `alert.severity` 分级。
+**但 Agent 与单次模型在准确率上分不出高下**（93% vs 84%，22 个用例、两次运行就有 5 处翻转）；
+Agent 的真实差异是"敢说不知道"——拒答 3/3 vs 单次模型 0/3。代价是 10.7 倍输入 token。
+
 金额成本未测量（未写死单价）。详见 `docs/BENCHMARK.md`。
 
 ## 端到端演示
@@ -454,7 +456,7 @@ curl "http://127.0.0.1:8000/api/v1/audit-logs?limit=50&offset=0" \
 pytest -q
 ```
 
-实际结果：`341 passed, 1 skipped`。跳过的是需要真实 PostgreSQL 的迁移测试。
+实际结果：`344 passed, 1 skipped`。跳过的是需要真实 PostgreSQL 的迁移测试。
 
 使用真实 PostgreSQL：
 
@@ -464,7 +466,7 @@ set "MIGRATION_TEST_DATABASE_URL=postgresql+psycopg://user:password@127.0.0.1:54
 pytest -q
 ```
 
-实际结果（PostgreSQL 16.15，2026-10-25）：`341 passed`；`tests/test_migrations.py` 单独跑 `1 passed`。
+实际结果（PostgreSQL 16.15，2026-10-25）：`341 passed`（该轮之后新增 3 项报告准确性测试）；`tests/test_migrations.py` 单独跑 `1 passed`。
 
 说明：
 
@@ -490,7 +492,7 @@ npm run build
 
 | 检查 | 结果 |
 | --- | --- |
-| `pytest -q`（SQLite） | `341 passed, 1 skipped` |
+| `pytest -q`（SQLite） | `344 passed, 1 skipped` |
 | 新增测试 | 222 项（告警详情/状态机/报告版本/证据分页/事件过滤/限流撤销/Agent/可观测性/评测/防重与凭证卫生/模型客户端 HTTP） |
 | 既有测试 | 原 112 项全部继续通过，未修改任何既有断言 |
 | 前端 `npm test` | `48 passed / 12 files` |

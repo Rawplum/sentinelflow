@@ -81,12 +81,21 @@ def test_deterministic_baseline_cannot_refuse_insufficient_evidence() -> None:
     # A template can only ever state the rule's own conclusion.
     assert refusal["numerator"] == 0
 
-    misses = [
+    misses = {
         row["id"]
         for row in payload["baselines"]["deterministic"]["cases"]
         if not row["meets_expectation"]
-    ]
-    assert set(misses) == {"insufficient_single_event", "contradictory_timestamps"}
+    }
+    # The template fails exactly where uncertainty or an anomaly has to be
+    # expressed. Anywhere else it passes, because the risk level it prints is
+    # the severity it was handed.
+    structural = {
+        case.id
+        for case in load_cases()
+        if "deterministic" in case.applicable_to
+        and (case.expect.get("should_refuse") or case.expect.get("must_mention_any"))
+    }
+    assert misses == structural
 
 
 def test_agent_baseline_answers_with_valid_citations() -> None:
@@ -96,14 +105,19 @@ def test_agent_baseline_answers_with_valid_citations() -> None:
     # Three cases need an injected fault (timeout, bad citation, tool error).
     # A model baseline cannot reproduce those, so they are skipped and reported
     # rather than scored against a failure the model has no way to produce.
-    assert block["applicable_cases"] == 6
+    expected = sum(
+        1
+        for case in load_cases()
+        if "agent" in case.applicable_to and not case.requires_fault_injection
+    )
+    assert block["applicable_cases"] == expected
     assert {item["case"] for item in payload["skipped"]} == {
         "invalid_citation",
         "model_timeout",
         "tool_failure_recovery",
     }
     answered = [row for row in block["cases"] if row["produced_answer"]]
-    assert len(answered) == 6
+    assert len(answered) == expected
     assert all(row["citations_valid"] for row in answered)
 
     tool_metric = _metric(payload, "agent", "tool_call_success_rate")

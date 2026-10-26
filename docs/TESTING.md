@@ -18,7 +18,7 @@
 ```text
 $ .venv\Scripts\python.exe -m pytest -q
 ... [100%]
-341 passed, 1 skipped
+344 passed, 1 skipped
 ```
 
 跳过的是 `tests/test_migrations.py`，原因是没有设置 `MIGRATION_TEST_DATABASE_URL`。
@@ -53,7 +53,7 @@ pytest -q
 
 ```text
 == pytest -q（全量，TEST_DATABASE_URL 指向 PostgreSQL）==
-341 passed, 1 skipped          # 跳过的是未设置 MIGRATION_TEST_DATABASE_URL 的场景
+344 passed, 1 skipped          # 跳过的是未设置 MIGRATION_TEST_DATABASE_URL 的场景
 
 == pytest tests/test_migrations.py（设置 MIGRATION_TEST_DATABASE_URL）==
 1 passed
@@ -148,6 +148,50 @@ GET  /health、/alerts（未配置模型时）            -> 200
 
 **该冒烟使用 SQLite，不是 PostgreSQL**；结论不能替代 PostgreSQL 验证。
 
+### 真实浏览器端到端（`e2e/browser.mjs`）
+
+jsdom + MSW 只能证明组件在假网络下的行为。这一层用真实 Chromium、真实后端、
+真实 Vite 代理走一遍人实际会走的路径：
+
+```bat
+:: 1. 后端（需 LLM_*，可用本地 stub）
+:: 2. cd frontend && npm run dev
+:: 3. 仓库根目录
+npm install --no-save playwright
+npx playwright install chromium
+node e2e/browser.mjs
+```
+
+可用 `E2E_BASE_URL` / `E2E_USERNAME` / `E2E_PASSWORD` / `CHROME_PATH` 覆盖默认值。
+任何 console error 或未捕获的页面异常都会让本次运行失败，失败时截图写到 `e2e/failure.png`。
+
+实测结果（2026-10-25，真实 Chromium + 真实后端 + 本地 stub 模型）：
+
+```text
+OK   login page renders  — /login
+OK   dashboard rendered after login  — /dashboard
+OK   alert list loaded  — 2 rows
+OK   status filter returns an empty state
+OK   alert detail page  — /alerts/669cd48a-...
+OK   evidence preview rendered
+OK   investigation submitted
+OK   investigation finished
+OK   steps table rendered
+OK   tool calls rendered
+OK   report rendered
+OK   investigation id persisted in the URL
+OK   after reload the investigation is restored
+OK   report page labels the rule-generated report
+OK   logout returns to the login page
+OK   protected route redirects when signed out
+
+all browser checks passed
+```
+
+**它证明什么**：前端与真实后端的接口契约、鉴权跳转、筛选是否真的发请求、
+刷新能否从 URL 恢复调查、退出后受保护路由是否跳登录页。
+**它不证明什么**：模型质量（模型是 stub）、跨浏览器兼容（只有 Chromium）、性能。
+
 ### 其他验收检查
 
 | 检查 | 结果 |
@@ -177,7 +221,7 @@ pytest -q
 -> 112 passed, 1 skipped
 
 PostgreSQL 16.15 + pytest -q
--> 341 passed, 1 skipped
+-> 344 passed, 1 skipped
 ```
 
 OpenAPI 实际安全要求：
@@ -212,6 +256,7 @@ OpenAPI 实际安全要求：
 | `tests/test_investigation_observability.py` | 轮次落库与顺序、模型失败轮次、预算轮次、`duration_ms`/`request_id`、追踪不含日志原文、中断回收、CLI 未配置时失败关闭、并发防重 409、过期行不阻塞、重复执行幂等、追踪不含凭证 |
 | `tests/test_eval_suite.py` | 13 个评测用例参数化 + 场景覆盖断言 + 指标未测量时不得伪造 |
 | `tests/test_alert_filters_api.py` | 告警列表按状态/严重性过滤、组合过滤、筛选后 total 与分页一致、非法枚举 422、未认证 401 |
+| `tests/test_report_accuracy.py` | 截断报告与分页报告的窗口必须取自告警而非当前页；4 失败 + 1 成功不得被写成"5 次失败" |
 | `tests/test_benchmark.py` | 基准数据集覆盖 9 类场景、确定性基线 100% 完成、**规则系统无法拒答**（0/2）、Agent 引用有效、self-test 不声称成本、判定可重复、同步调查入口真的执行（回归）、`--probe` 未配置时失败关闭 / 端点可用时通过 / 401 时失败、故障注入用例跳过时必须显式报告、规则基线必须带同义反复 caveat、`must_mention_any` 不得被 limitations 模板命中、`--repeat` 必须报告判定翻转 |
 | `tests/test_security_hardening.py` | 10 类攻击面的负向测试：提示注入不扩权、analyst 越权、参数跨告警、9 个非白名单工具、15 种畸形参数、无 SQL/命令/网络逃逸口、越界引用、凭据不外泄、体积/队列/时长上限、无限调用与重试（46 项） |
 | `tests/test_investigation_queue.py` | 队列状态流转：新建为 `pending` 且请求不调模型、领取加租约、二次领取为空、租约过期可重领、次数耗尽转 `failed(interrupted)`、可恢复错误退避重试、重试上限、确定性失败不重试、工具超时不触发重试、`pending` 期间重复提交 409、**跨进程重启后任务仍可查询与领取** |

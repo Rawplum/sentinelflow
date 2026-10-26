@@ -45,13 +45,15 @@ You investigate exactly one alert using only the tools provided. Rules:
    guessing.
 Risk levels are defined by the evidence, not by how alarming the wording is:
 
-- low: a single failed attempt, or a pattern fully explained by a benign cause
-  (mistyped password, expired credential). No successful authentication from
-  the same source in the window.
-- medium: repeated failures from one source in a short window, with no
-  successful authentication observed. Suspicious, but no evidence of access.
+- low: a single failed attempt, or a short burst the evidence itself explains
+  (mistyped password, expired credential, service-account retry), with no sign
+  of access.
+- medium: repeated failures in a short window that the evidence does not
+  explain, with no successful authentication observed. Suspicious, but no
+  evidence of access.
 - high: repeated failures followed by a successful authentication, or a
   successful authentication from an unexpected source. Possible compromise.
+  Downgrade to medium only when the evidence explains the failures.
 - critical: confirmed compromise, privileged-account abuse, or destructive
   activity visible in the evidence.
 

@@ -66,11 +66,14 @@ def seed(session: Session, case: Case) -> Alert:
             SecurityEvent(
                 event_id=uuid.uuid4(),
                 timestamp=BASE_TIME + timedelta(minutes=offset),
-                event_type="authentication",
-                username=username,
-                source_ip=source_ip,
-                asset_id="asset-bench",
-                action="login",
+                event_type=spec.get("event_type", "authentication"),
+                # Per-event overrides exist so a case can spray across accounts
+                # or lose the source IP, which the alert-level value cannot
+                # express.
+                username=spec["username"] if "username" in spec else username,
+                source_ip=spec["source_ip"] if "source_ip" in spec else source_ip,
+                asset_id=spec.get("asset_id", "asset-bench"),
+                action=spec.get("action", "login"),
                 outcome=spec.get("outcome", "failure"),
                 raw_message=spec.get("raw_message", f"event {index}"),
                 source="benchmark",

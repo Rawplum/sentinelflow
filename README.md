@@ -44,7 +44,8 @@ SentinelFlow 是一个 AI 辅助的安全事件研判与响应平台。当前版
 | 安全加固与负向测试 | 已实现，46 项 | 见 `docs/SECURITY.md`：威胁模型、12 类控制、残余风险 |
 | Agent 对比基准 | 已实现，确定性基线有真实结果 | 见 `docs/BENCHMARK.md`：规则 / 单次模型 / Agent 三方对比 |
 | 调查过程追踪 | 已实现，测试通过 | `investigation_rounds` + 轮次/工具耗时 + `duration_ms` + `request_id` |
-| 前端调查闭环 | 已实现，测试通过 | 报告页内启动调查、轮询状态、查看步骤/工具/报告、失败重试 |
+| 前端调查闭环 | 已实现，测试通过 | 告警详情页启动调查、轮询状态、查看步骤/工具/报告、失败重试 |
+| 告警列表筛选 | 已实现（后端过滤） | `GET /alerts?status=&severity=`，计数随筛选变化 |
 | AI Agent 调查 | 已实现（Mock 模型验证） | 单 Agent、4 个只读白名单工具、5 轮/8 次预算、引用校验、产出草稿 |
 | Agent 真实模型调用 | 未验证 | 需要配置 `LLM_*` 环境变量；本机无凭据，未做真实调用 |
 | `/ready` 就绪检查 | 未实现 | 当前只有 `/health` |
@@ -442,7 +443,7 @@ curl "http://127.0.0.1:8000/api/v1/audit-logs?limit=50&offset=0" \
 pytest -q
 ```
 
-实际结果：`327 passed, 1 skipped`。跳过的是需要真实 PostgreSQL 的迁移测试。
+实际结果：`334 passed, 1 skipped`。跳过的是需要真实 PostgreSQL 的迁移测试。
 
 使用真实 PostgreSQL：
 
@@ -477,10 +478,10 @@ npm run build
 
 | 检查 | 结果 |
 | --- | --- |
-| `pytest -q`（SQLite） | `327 passed, 1 skipped` |
-| 新增测试 | 215 项（告警详情/状态机/报告版本/证据分页/事件过滤/限流撤销/Agent/可观测性/评测/防重与凭证卫生/模型客户端 HTTP） |
+| `pytest -q`（SQLite） | `334 passed, 1 skipped` |
+| 新增测试 | 222 项（告警详情/状态机/报告版本/证据分页/事件过滤/限流撤销/Agent/可观测性/评测/防重与凭证卫生/模型客户端 HTTP） |
 | 既有测试 | 原 112 项全部继续通过，未修改任何既有断言 |
-| 前端 `npm test` | `40 passed / 11 files` |
+| 前端 `npm test` | `48 passed / 12 files` |
 | 前端 `typecheck` / `lint` | 通过 / 0 warnings |
 | `alembic heads` | `0006 (head)` |
 | `alembic check` | **通过**：在真实 SQLite 库上 `upgrade head` 后 `No new upgrade operations detected` |

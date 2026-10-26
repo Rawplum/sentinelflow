@@ -23,6 +23,11 @@ import { ErrorState } from '../components/ui/ErrorState'
 import { Spinner } from '../components/ui/Spinner'
 import { formatDateTime, shortId } from '../lib/format'
 
+const GENERATOR_LABELS: Record<string, string> = {
+  deterministic: '确定性规则生成',
+  agent: 'AI 辅助生成',
+}
+
 const REPORT_STATUS_LABELS: Record<string, string> = {
   draft: '草稿',
   finalized: '已定稿',
@@ -115,16 +120,23 @@ export function ReportPage() {
 
   return (
     <div className="sf-page">
-      <Link to="/alerts" className="sf-back-link">
+      <Link to={alertId ? `/alerts/${alertId}` : '/alerts'} className="sf-back-link">
         <ArrowLeft size={15} aria-hidden="true" />
-        返回告警列表
+        返回告警详情
       </Link>
 
       <PageHeader
         eyebrow="Investigation report"
         title={alert.title}
         description={`告警 ID：${alertId ?? '—'}`}
-        actions={<SeverityBadge severity={report.risk_level} />}
+        actions={
+          <div className="sf-report-actions">
+            {/* The live report is always produced by the AUTH-001 rule; AI drafts
+                only exist as saved versions below. Say so explicitly. */}
+            <span className="sf-badge sf-badge-neutral">确定性规则生成</span>
+            <SeverityBadge severity={report.risk_level} />
+          </div>
+        }
       />
 
       <div className="sf-report-meta">
@@ -235,7 +247,7 @@ export function ReportPage() {
                 <span>
                   v{version.version} ·{' '}
                   {REPORT_STATUS_LABELS[version.status] ?? version.status} ·{' '}
-                  {version.generator}
+                  {GENERATOR_LABELS[version.generator] ?? version.generator}
                   {version.finalized_by_username
                     ? ` · 定稿人 ${version.finalized_by_username}`
                     : ''}

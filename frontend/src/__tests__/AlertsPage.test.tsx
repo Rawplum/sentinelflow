@@ -1,6 +1,9 @@
-import { screen } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
+
+import { server } from '../test/msw/server'
 
 import {
   adminAuth,
@@ -16,8 +19,9 @@ describe('AlertsPage', () => {
     expect(
       await screen.findByText('Suspicious login activity'),
     ).toBeInTheDocument()
-    expect(screen.getByText('高')).toBeInTheDocument()
-    expect(screen.getByText('待处理')).toBeInTheDocument()
+    const table = await screen.findByRole('table')
+    expect(within(table).getByText('高')).toBeInTheDocument()
+    expect(within(table).getByText('待处理')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '运行检测' }))
 
@@ -35,6 +39,43 @@ describe('AlertsPage', () => {
       screen.queryByRole('button', { name: '运行检测' }),
     ).not.toBeInTheDocument()
     expect(screen.getByText(/分析员只读视图/)).toBeInTheDocument()
+  })
+
+  it('sends the status filter to the backend', async () => {
+    let captured: string | null = null
+    server.use(
+      http.get('*/api/v1/alerts', ({ request }) => {
+        captured = new URL(request.url).searchParams.get('status')
+        return HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 })
+      }),
+    )
+
+    const user = userEvent.setup()
+    renderApp('/alerts', adminAuth)
+
+    await user.selectOptions(screen.getByLabelText('状态'), 'closed')
+
+    await waitFor(() => expect(captured).toBe('closed'))
+    expect(await screen.findByText('暂无告警。导入事件并运行检测后会出现结果。')).toBeInTheDocument()
+  })
+
+  it('sends the severity filter and can clear it', async () => {
+    const seen: (string | null)[] = []
+    server.use(
+      http.get('*/api/v1/alerts', ({ request }) => {
+        seen.push(new URL(request.url).searchParams.get('severity'))
+        return HttpResponse.json({ items: [], total: 0, limit: 50, offset: 0 })
+      }),
+    )
+
+    const user = userEvent.setup()
+    renderApp('/alerts', adminAuth)
+
+    await user.selectOptions(screen.getByLabelText('严重性'), 'critical')
+    await waitFor(() => expect(seen.at(-1)).toBe('critical'))
+
+    await user.click(screen.getByRole('button', { name: '清除筛选' }))
+    await waitFor(() => expect(seen.at(-1)).toBeNull())
   })
 
   it('links to the investigation report', async () => {

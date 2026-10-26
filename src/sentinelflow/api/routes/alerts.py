@@ -17,12 +17,14 @@ from sentinelflow.schemas.alerts import (
     AlertDetail,
     AlertEvidenceListResponse,
     AlertListResponse,
+    AlertStatus,
     AlertStatusHistoryRead,
     AlertStatusUpdateRequest,
     InvestigationReportListResponse,
     InvestigationReportRead,
     InvestigationReportResponse,
     ReportCreateRequest,
+    RiskLevel,
 )
 from sentinelflow.services.alerts import (
     InvalidStatusTransitionError,
@@ -69,10 +71,18 @@ def _load_alert_detail(db: Session, alert_id: uuid.UUID) -> AlertDetail | None:
 def list_alerts_endpoint(
     limit: Annotated[int, Query(ge=1, le=200, description="Page size")] = 50,
     offset: Annotated[int, Query(ge=0, description="Number of rows to skip")] = 0,
+    status_filter: Annotated[
+        AlertStatus | None, Query(alias="status", description="Filter by status")
+    ] = None,
+    severity: Annotated[
+        RiskLevel | None, Query(description="Filter by severity")
+    ] = None,
     user: User = Depends(require_permission(Permission.ALERTS_READ)),
     db: Session = Depends(get_db),
 ) -> AlertListResponse:
-    items, total = list_alerts(db, limit=limit, offset=offset)
+    items, total = list_alerts(
+        db, limit=limit, offset=offset, status=status_filter, severity=severity
+    )
     return AlertListResponse(
         items=items,
         total=total,

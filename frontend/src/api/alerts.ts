@@ -7,15 +7,39 @@ import type {
   InvestigationReportList,
   InvestigationReportVersion,
   Paginated,
+  SecurityEvent,
 } from './types'
+
+export interface AlertFilters {
+  status?: string
+  severity?: string
+}
 
 export async function listAlerts(
   limit: number,
   offset: number,
+  filters: AlertFilters = {},
 ): Promise<Paginated<Alert>> {
   const response = await apiClient.get<Paginated<Alert>>('/alerts', {
-    params: { limit, offset },
+    params: {
+      limit,
+      offset,
+      ...(filters.status ? { status: filters.status } : {}),
+      ...(filters.severity ? { severity: filters.severity } : {}),
+    },
   })
+  return response.data
+}
+
+export async function getAlertEvidence(
+  alertId: string,
+  limit = 10,
+  offset = 0,
+): Promise<Paginated<SecurityEvent>> {
+  const response = await apiClient.get<Paginated<SecurityEvent>>(
+    `/alerts/${alertId}/evidence`,
+    { params: { limit, offset } },
+  )
   return response.data
 }
 

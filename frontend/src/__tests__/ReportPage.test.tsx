@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { report } from '../test/msw/handlers'
 import { server } from '../test/msw/server'
-import { analystAuth, renderApp } from '../test/utils'
+import { adminAuth, analystAuth, renderApp } from '../test/utils'
 
 const ALERT_ID = '55555555-5555-4555-8555-555555555555'
 
@@ -73,5 +73,17 @@ describe('ReportPage', () => {
     expect(
       await screen.findByText(/1 \/ 150 条 · 已截断/),
     ).toBeInTheDocument()
+  })
+
+  it('labels the live report as rule-generated and links back to the alert', async () => {
+    renderApp('/alerts/55555555-5555-4555-8555-555555555555/report', adminAuth)
+
+    expect(await screen.findByText('确定性规则生成')).toBeInTheDocument()
+
+    const back = screen.getByRole('link', { name: /返回告警详情/ })
+    expect(back).toHaveAttribute(
+      'href',
+      '/alerts/55555555-5555-4555-8555-555555555555',
+    )
   })
 })

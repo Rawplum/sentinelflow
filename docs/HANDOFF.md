@@ -2,7 +2,7 @@
 
 最后更新：2026-10-24
 
-**一句话状态**：功能闭环已完成并在 SQLite 上验证（后端 327 passed，前端 40 passed），
+**一句话状态**：功能闭环已完成并在 SQLite 上验证（后端 334 passed，前端 48 passed），
 但 **PostgreSQL 与真实模型均未验证**，因此仍属工程原型，只建议本地使用。
 详细状态与接手步骤见下一节。
 
@@ -13,7 +13,7 @@
 ```bat
 git log --oneline           :: 看最近几次提交，判断上次做到哪
 git status --short          :: 有输出 = 有未提交改动，先看清楚再动手
-pytest -q                   :: 期望 327 passed, 1 skipped
+pytest -q                   :: 期望 334 passed, 1 skipped
 python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 拒答
 ```
 
@@ -26,7 +26,7 @@ python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 �
 | --- | --- |
 | 迁移 head | `0006` |
 | 后端测试 | 327 passed / 1 skipped（跳过的是需 PostgreSQL 的迁移测试） |
-| 前端测试 | 40 passed / 11 files |
+| 前端测试 | 48 passed / 12 files |
 | 已验证环境 | SQLite（内存 + 真实文件） |
 | **未验证** | PostgreSQL 运行行为、真实模型调用、真实浏览器 |
 
@@ -47,7 +47,7 @@ python -m benchmark.runner  :: 确定性基线，期望 3/5 期望匹配、0/2 �
 
 ### 下一步只有一件事
 
-在真实 PostgreSQL 上跑 `pytest -q` 与迁移升降级，达到 `327 passed, 0 skipped`。
+在真实 PostgreSQL 上跑 `pytest -q` 与迁移升降级，达到 `334 passed, 0 skipped`。
 在这之前的任何"生产可用"表述都不成立。
 
 ## 1. 项目目标与技术栈
@@ -257,7 +257,7 @@ G:\软件开发\
 
 实际测试结果（累计，最新数字见 5.1 第五天验收结果）：
 
-- 全量 SQLite：`327 passed, 1 skipped`（迁移测试因未设置 PostgreSQL URL 跳过）。
+- 全量 SQLite：`334 passed, 1 skipped`（迁移测试因未设置 PostgreSQL URL 跳过）。
 - 既有 112 项测试全部继续通过，**未修改任何既有断言**。
 - 阶段 A 新增 78 项：告警详情、状态机、报告版本、证据分页、事件过滤、登录限流与令牌撤销。
 - 阶段 B 新增 27 项：Agent 白名单、参数校验、权限、作用域、预算、引用校验、日志脱敏、提示注入、模型失败/超时、非法结构化输出、空查询结果、失败审计。
@@ -531,7 +531,7 @@ docs/DECISIONS.md、docs/PLAN.md、docs/TESTING.md、docs/HANDOFF.md
 
 | 检查 | 结果 |
 | --- | --- |
-| 后端全量 | `327 passed, 1 skipped` |
+| 后端全量 | `334 passed, 1 skipped` |
 | Agent / 可观测性 / 评测 / 认证 RBAC 分组 | `97 passed` |
 | 评测集 | `13/13 passed`；`--repeat 3` 判定一致 |
 | 前端 | `33 passed / 9 files`；typecheck 通过；lint 0 warnings；build 通过 |
@@ -783,6 +783,46 @@ pytest -q tests/test_benchmark.py
 ```
 
 详见 `docs/BENCHMARK.md`。
+
+
+## 5.6 第十天（2026-10-24）：前端研判闭环整合
+
+目标是把已有能力串成一条能演示的路径，而不是重写界面。
+
+### 结构变化
+
+```text
+/alerts                 列表（新增状态 / 严重性筛选，服务端过滤）
+/alerts/:id             新增：告警详情（元信息 + 状态历史 + 证据预览 + 调查面板）
+/alerts/:id/report      报告（标注来源、链接回详情）
+```
+
+以前点告警直接跳报告页，语义上把"详情"和"报告"混在一起；现在分开，详情页是入口，
+报告是产物。所有数据都来自 API，刷新可重建。
+
+### 后端（唯一新增能力）
+
+`GET /api/v1/alerts` 增加 `status` / `severity` 查询参数，SQL 层过滤，`total` 随筛选变化，
+非法枚举 422。前端**没有**做客户端过滤——那会让计数说谎。
+
+### 前端
+
+- 列表：两个筛选下拉 + 清除；改筛选时自动回到第一页。
+- 详情页：告警元信息、状态变更历史、前 10 条证据（含"完整证据"跳转）、调查面板。
+- 报告页：顶部标注「确定性规则生成」；版本列表把 `generator` 翻成中文（AI 辅助 / 确定性规则）；
+  返回链接指向详情页而不是列表。
+- 角色：调查按钮只对 admin 渲染，后端仍强制 `reports:write`；analyst 看到只读说明。
+- 状态：加载中 / 404 / 网络错误 + 重试 / 空列表 / 无权限，各有对应组件。
+
+### 测试
+
+新增 `AlertDetailPage.test.tsx`（5 项：渲染、报告链接、404、500 重试、analyst 只读），
+`AlertsPage.test.tsx` 增加 2 项筛选测试（断言请求真的带上 `status`/`severity`），
+`ReportPage.test.tsx` 增加 1 项来源标注测试。后端新增 `test_alert_filters_api.py`（7 项）。
+
+### 结果
+
+后端 **334 passed / 1 skipped**，前端 **48 passed / 12 files**，typecheck / lint / build 通过。
 
 ## 6. 环境准备、数据库、用户、启动和测试
 

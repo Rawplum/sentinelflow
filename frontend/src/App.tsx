@@ -9,6 +9,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { EventsPage } from './pages/EventsPage'
 import { LoginPage } from './pages/LoginPage'
 import { NotFoundPage } from './pages/NotFoundPage'
+import { AlertDetailPage } from './pages/AlertDetailPage'
 import { ReportPage } from './pages/ReportPage'
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/events" element={<EventsPage />} />
           <Route path="/alerts" element={<AlertsPage />} />
+          <Route path="/alerts/:alertId" element={<AlertDetailPage />} />
           <Route path="/alerts/:alertId/report" element={<ReportPage />} />
           <Route element={<RequireAdmin />}>
             <Route path="/audit" element={<AuditPage />} />

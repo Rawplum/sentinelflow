@@ -218,7 +218,15 @@
 
 需要 `alerts:read`，admin 和 analyst 都可访问。
 
-查询参数同事件列表。
+| 参数 | 默认 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| `limit` | 50 | 1–200 | 页大小 |
+| `offset` | 0 | ≥0 | 跳过行数 |
+| `status` | 无 | `open` / `acknowledged` / `investigating` / `closed` | 精确匹配 |
+| `severity` | 无 | `low` / `medium` / `high` / `critical` | 精确匹配 |
+
+`total` 反映**筛选后**的总数，不是全表数量；非法枚举值返回 422。
+筛选在 SQL 层执行，前端不需要拉全表再过滤。
 
 响应：
 

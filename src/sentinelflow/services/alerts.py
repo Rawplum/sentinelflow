@@ -63,17 +63,33 @@ def to_alert_read(alert: Alert, evidence_count: int) -> AlertRead:
 
 
 def list_alerts(
-    session: Session, *, limit: int, offset: int
+    session: Session,
+    *,
+    limit: int,
+    offset: int,
+    status: str | None = None,
+    severity: str | None = None,
 ) -> tuple[list[AlertRead], int]:
     """List alerts with evidence counts computed in SQL.
 
     Counting in SQL avoids loading every evidence row of every alert just to
     report ``evidence_count``.
     """
-    total = session.scalar(select(func.count()).select_from(Alert)) or 0
+    conditions = []
+    if status is not None:
+        conditions.append(Alert.status == status)
+    if severity is not None:
+        conditions.append(Alert.severity == severity)
+
+    total_query = select(func.count()).select_from(Alert)
+    rows_query = select(Alert, _evidence_count_subquery().label("evidence_count"))
+    if conditions:
+        total_query = total_query.where(*conditions)
+        rows_query = rows_query.where(*conditions)
+
+    total = session.scalar(total_query) or 0
     rows = session.execute(
-        select(Alert, _evidence_count_subquery().label("evidence_count"))
-        .order_by(Alert.created_at.desc(), Alert.id.asc())
+        rows_query.order_by(Alert.created_at.desc(), Alert.id.asc())
         .limit(limit)
         .offset(offset)
     ).all()

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 
@@ -25,14 +26,27 @@ export function AlertsPage() {
   const { isAdmin } = useAuth()
   const navigate = useNavigate()
   const { limit, offset, setLimit, setOffset } = usePagination()
+  const [statusFilter, setStatusFilter] = useState('')
+  const [severityFilter, setSeverityFilter] = useState('')
+
+  const filters = {
+    ...(statusFilter ? { status: statusFilter } : {}),
+    ...(severityFilter ? { severity: severityFilter } : {}),
+  }
 
   const query = useQuery({
-    queryKey: ['alerts', limit, offset],
-    queryFn: () => listAlerts(limit, offset),
+    queryKey: ['alerts', limit, offset, statusFilter, severityFilter],
+    queryFn: () => listAlerts(limit, offset, filters),
   })
 
-  const openReport = (alert: Alert) => {
-    navigate(`/alerts/${alert.id}/report`)
+  const changeFilter = (setter: (value: string) => void) => (value: string) => {
+    setter(value)
+    // A filter change invalidates the current page number.
+    setOffset(0)
+  }
+
+  const openDetail = (alert: Alert) => {
+    navigate(`/alerts/${alert.id}`)
   }
 
   const columns: Column<Alert>[] = [
@@ -54,7 +68,7 @@ export function AlertsPage() {
       render: (alert) => (
         <div className="sf-table-primary">
           <Link
-            to={`/alerts/${alert.id}/report`}
+            to={`/alerts/${alert.id}`}
             className="sf-inline-link"
             onClick={(event) => event.stopPropagation()}
           >
@@ -143,6 +157,50 @@ export function AlertsPage() {
         </div>
       )}
 
+      <div className="sf-filter-bar">
+        <label className="sf-inline-field">
+          <span>状态</span>
+          <select
+            className="sf-select"
+            value={statusFilter}
+            onChange={(event) => changeFilter(setStatusFilter)(event.target.value)}
+          >
+            <option value="">全部</option>
+            <option value="open">待处理</option>
+            <option value="acknowledged">已确认</option>
+            <option value="investigating">调查中</option>
+            <option value="closed">已关闭</option>
+          </select>
+        </label>
+        <label className="sf-inline-field">
+          <span>严重性</span>
+          <select
+            className="sf-select"
+            value={severityFilter}
+            onChange={(event) => changeFilter(setSeverityFilter)(event.target.value)}
+          >
+            <option value="">全部</option>
+            <option value="critical">严重</option>
+            <option value="high">高</option>
+            <option value="medium">中</option>
+            <option value="low">低</option>
+          </select>
+        </label>
+        {statusFilter || severityFilter ? (
+          <button
+            type="button"
+            className="sf-link-button"
+            onClick={() => {
+              setStatusFilter('')
+              setSeverityFilter('')
+              setOffset(0)
+            }}
+          >
+            清除筛选
+          </button>
+        ) : null}
+      </div>
+
       <Card
         title="告警队列"
         subtitle={
@@ -164,7 +222,7 @@ export function AlertsPage() {
               columns={columns}
               rows={query.data?.items ?? []}
               rowKey={(alert) => alert.id}
-              onRowClick={openReport}
+              onRowClick={openDetail}
               emptyMessage="暂无告警。导入事件并运行检测后会出现结果。"
             />
             <Pagination
@@ -179,7 +237,8 @@ export function AlertsPage() {
       </Card>
 
       <footer className="sf-page-footnote">
-        告警状态修改由后端 PATCH /api/v1/alerts/&lt;id&gt; 提供（仅管理员）；当前页面不提供状态操作按钮，状态变更请通过 API 完成。
+        筛选与分页均由后端执行（<code>GET /api/v1/alerts?status=&amp;severity=</code>），
+        因此计数反映的是筛选结果，而不是当前页。
       </footer>
     </div>
   )

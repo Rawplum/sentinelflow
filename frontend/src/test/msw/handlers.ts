@@ -343,9 +343,39 @@ export const handlers = [
     const url = new URL(request.url)
     const limit = Number(url.searchParams.get('limit') ?? '50')
     const offset = Number(url.searchParams.get('offset') ?? '0')
+    const status = url.searchParams.get('status')
+    const severity = url.searchParams.get('severity')
+
+    const filtered = alerts.filter(
+      (alert) =>
+        (!status || alert.status === status) &&
+        (!severity || alert.severity === severity),
+    )
+
     return HttpResponse.json({
-      items: alerts.slice(offset, offset + limit),
-      total: alerts.length,
+      items: filtered.slice(offset, offset + limit),
+      total: filtered.length,
+      limit,
+      offset,
+    })
+  }),
+
+  http.get('*/api/v1/alerts/:alertId/evidence', ({ params, request }) => {
+    if (params.alertId !== alerts[0].id) {
+      return HttpResponse.json({ detail: 'Alert not found' }, { status: 404 })
+    }
+    const url = new URL(request.url)
+    const limit = Number(url.searchParams.get('limit') ?? '10')
+    const offset = Number(url.searchParams.get('offset') ?? '0')
+    const items = report.evidence.map((item, index) => ({
+      ...item,
+      event_type: 'authentication',
+      raw_message: `synthetic failure ${index}`,
+      source: 'fixture',
+    }))
+    return HttpResponse.json({
+      items: items.slice(offset, offset + limit),
+      total: items.length,
       limit,
       offset,
     })
